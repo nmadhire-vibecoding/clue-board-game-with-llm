@@ -26,6 +26,75 @@ Each player uses deduction and strategy to be the first to solve the mystery!
 
 Based on the [official Cluedo rules](https://en.wikipedia.org/wiki/Cluedo#Rules):
 
+### Game Flow
+
+```
+SETUP:
+  1. Randomly select 1 suspect, 1 weapon, 1 room -> place in SOLUTION ENVELOPE
+  2. Shuffle remaining 18 cards and deal to all players
+  3. Each player records their cards in their Detective Notebook
+  4. Miss Scarlet goes first (or highest dice roll)
+
+TURN ORDER (clockwise from Miss Scarlet):
+
+  +------------------+
+  |   START TURN     |
+  +--------+---------+
+           |
+           v
+  +------------------+
+  |   ROLL DICE      |  (If you roll a 1, it shows magnifying glass = free clue!)
+  +--------+---------+
+           |
+           v
+  +------------------+
+  |   MOVE           |  Options:
+  |                  |  - Move through doors to adjacent room
+  +--------+---------+  - Use secret passage (corner rooms only)
+           |            - Stay if moved here by another's suggestion
+           v
+  +------------------+
+  | IN A ROOM?       |--NO--> End turn, next player
+  +--------+---------+
+           | YES
+           v
+  +------------------+
+  | MAKE SUGGESTION  |  "I suggest it was [SUSPECT] with the [WEAPON]
+  | (optional)       |   in the [CURRENT ROOM]"
+  +--------+---------+
+           |
+           v
+  +------------------+
+  | DISPROVAL        |  Clockwise from you:
+  | (automatic)      |  - Each player checks if they have any suggested card
+  +--------+---------+  - First player with a match shows you ONE card (secret)
+           |            - If no one can disprove -> STRONG LEAD!
+           v
+  +------------------+
+  | MAKE ACCUSATION  |  "I accuse [SUSPECT] with the [WEAPON]
+  | (optional)       |   in the [ROOM]" (can be any room!)
+  +--------+---------+
+           |
+      +----+----+
+      |         |
+   CORRECT    WRONG
+      |         |
+      v         v
+  +------+  +------------------+
+  | WIN! |  | ELIMINATED       |
+  +------+  | (still disprove) |
+            +------------------+
+           |
+           v
+  +------------------+
+  |   END TURN       |  -> Next player clockwise
+  +------------------+
+
+WINNING CONDITIONS:
+  - Make a correct accusation, OR
+  - Be the last active player (all others eliminated)
+```
+
 ### Board Layout
 
 The mansion layout with 9 rooms and their door positions:
