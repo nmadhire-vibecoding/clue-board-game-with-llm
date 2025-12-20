@@ -27,6 +27,43 @@ from clue_game.crew import (
 load_dotenv()
 
 
+def retry_with_backoff(func, max_retries=3, base_delay=5):
+    """
+    Retry a function with exponential backoff.
+    
+    Args:
+        func: Callable to retry
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds (will be multiplied exponentially)
+    
+    Returns:
+        The result of the function call
+    
+    Raises:
+        The last exception if all retries fail
+    """
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            result = func()
+            # Check for empty/None response
+            if result is None or (hasattr(result, 'raw') and not result.raw):
+                raise ValueError("Empty or None response from LLM")
+            return result
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff: 5, 10, 20 seconds
+                sys.stdout.write(f"\n⚠️ Attempt {attempt + 1} failed: {e}\n")
+                sys.stdout.write(f"🔄 Retrying in {delay} seconds...\n")
+                sys.stdout.flush()
+                time.sleep(delay)
+            else:
+                sys.stdout.write(f"\n❌ All {max_retries + 1} attempts failed\n")
+                sys.stdout.flush()
+    raise last_exception
+
+
 # Player names that map to agent methods
 PLAYER_CONFIGS = [
     {"name": "Scarlet", "agent_method": "player_scarlet"},
@@ -82,7 +119,11 @@ def run_game(max_turns: int = 20):
         "start",
         players=[f"{p.name} ({p.character.value})" for p in game_state.players]
     )
-    start_crew.kickoff()
+    try:
+        retry_with_backoff(start_crew.kickoff)
+    except Exception as e:
+        sys.stdout.write(f"\n⚠️ Could not announce game start: {e}\n")
+        sys.stdout.flush()
     
     print("\n" + "=" * 60)
     print("🎮 GAME BEGINS!")
@@ -135,7 +176,7 @@ def run_game(max_turns: int = 20):
         players_first_turn[current_player.name] = False
         
         try:
-            result = turn_crew.kickoff()
+            result = retry_with_backoff(turn_crew.kickoff)
             # Display succinct result
             sys.stdout.write(f"\n📝 {current_player.name}'s Turn Summary:\n")
             sys.stdout.write("-" * 40 + "\n")
@@ -153,7 +194,6 @@ def run_game(max_turns: int = 20):
         delay = random.randint(15, 30)
         sys.stdout.write(f"\n⏳ Waiting {delay} seconds before next turn...\n")
         sys.stdout.flush()
-        time.sleep(delay)
         time.sleep(delay)
         
         # Move to next player
@@ -173,7 +213,11 @@ def run_game(max_turns: int = 20):
         room=game_state.solution["room"].name,
         total_turns=turn_count,
     )
-    end_crew.kickoff()
+    try:
+        retry_with_backoff(end_crew.kickoff)
+    except Exception as e:
+        sys.stdout.write(f"\n⚠️ Could not announce game end: {e}\n")
+        sys.stdout.flush()
     
     # Print final results
     print("\n📊 FINAL RESULTS:")

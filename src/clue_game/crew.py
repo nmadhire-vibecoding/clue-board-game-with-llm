@@ -86,7 +86,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["game_moderator"],  # type: ignore[index]
             tools=MODERATOR_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -95,7 +95,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_scarlet"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -104,7 +104,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_mustard"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -113,7 +113,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_green"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -122,7 +122,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_peacock"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -131,7 +131,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_plum"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     @agent
@@ -140,7 +140,7 @@ class ClueGameCrew:
         return Agent(
             config=self.agents_config["player_white"],  # type: ignore[index]
             tools=PLAYER_TOOLS,
-            verbose=True,
+            verbose=False,
         )
     
     # ==================== TASKS ====================
