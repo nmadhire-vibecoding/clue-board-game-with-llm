@@ -261,14 +261,12 @@ def create_player_turn_crew(player_name: str, player_agent: Agent, moderator: Ag
         Take your turn now. Think step by step and USE YOUR NOTEBOOK.
         """,
         expected_output="""
-        A complete turn including:
-        1. Notebook status (unknown cards, possible solution)
-        2. Strategic decision on which room to visit
-        3. Movement action
-        4. Suggestion made and its result
-        5. Recording the suggestion in notebook
-        6. Updated possible solution after recording
-        7. Decision: accuse (if ready) or continue gathering info
+        A brief summary in this exact format:
+        LOCATION: [room you are in]
+        ACTION: [moved to X / stayed in X]
+        SUGGESTION: [Suspect, Weapon, Room] or "None"
+        RESULT: [Card shown by Player / No one could disprove / None]
+        STATUS: [X suspects, Y weapons, Z rooms remaining]
         """,
         agent=player_agent,
     )
@@ -277,7 +275,8 @@ def create_player_turn_crew(player_name: str, player_agent: Agent, moderator: Ag
         agents=[player_agent],
         tasks=[turn_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
+        tracing=False,
     )
 
 
@@ -337,5 +336,6 @@ def create_moderator_announcement_crew(moderator: Agent, announcement_type: str,
         agents=[moderator],
         tasks=[announcement_task],
         process=Process.sequential,
-        verbose=True,
+        verbose=False,
+        tracing=False,
     )

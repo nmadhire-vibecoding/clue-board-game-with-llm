@@ -6,6 +6,12 @@ Main entry point for running the multi-agent Clue game.
 
 import os
 import sys
+import time
+import random
+
+# Disable CrewAI tracing before importing crewai
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+
 from dotenv import load_dotenv
 
 from clue_game.game_state import get_game_state, reset_game_state
@@ -106,9 +112,10 @@ def run_game(max_turns: int = 20):
         
         turn_count += 1
         
-        print("\n" + "=" * 60)
-        print(f"🎲 TURN {turn_count}: {current_player.name}'s Turn")
-        print("=" * 60)
+        sys.stdout.write("\n" + "=" * 50 + "\n")
+        sys.stdout.write(f"🎲 TURN {turn_count}: {current_player.name} ({current_player.character.value})\n")
+        sys.stdout.write("=" * 50 + "\n")
+        sys.stdout.flush()
         
         # Get the corresponding agent
         player_agent = player_agents[current_player.name]
@@ -129,13 +136,25 @@ def run_game(max_turns: int = 20):
         
         try:
             result = turn_crew.kickoff()
-            print(f"\n📝 Turn Result:\n{result}")
+            # Display succinct result
+            sys.stdout.write(f"\n📝 {current_player.name}'s Turn Summary:\n")
+            sys.stdout.write("-" * 40 + "\n")
+            sys.stdout.write(str(result.raw if hasattr(result, 'raw') else result) + "\n")
+            sys.stdout.flush()
         except Exception as e:
-            print(f"\n❌ Error during {current_player.name}'s turn: {e}")
+            sys.stdout.write(f"\n❌ Error during {current_player.name}'s turn: {e}\n")
+            sys.stdout.flush()
         
         # Check if game ended during this turn
         if game_state.game_over:
             break
+        
+        # Add delay between turns to avoid API rate limiting
+        delay = random.randint(15, 30)
+        sys.stdout.write(f"\n⏳ Waiting {delay} seconds before next turn...\n")
+        sys.stdout.flush()
+        time.sleep(delay)
+        time.sleep(delay)
         
         # Move to next player
         game_state.next_turn()
