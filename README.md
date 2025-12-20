@@ -2,7 +2,7 @@
 
 A multi-agent implementation of the classic Clue (Cluedo) board game using CrewAI and Google Gemini 2.5 Flash LLM. Six AI agents compete to solve the murder mystery following the **official game rules** from [Wikipedia](https://en.wikipedia.org/wiki/Cluedo#Rules).
 
-## 🎮 Game Overview
+## Game Overview
 
 In this game, 6 AI players investigate a murder at Tudor Mansion:
 - **Who** committed the crime (6 suspects)
@@ -11,7 +11,7 @@ In this game, 6 AI players investigate a murder at Tudor Mansion:
 
 Each player uses deduction and strategy to be the first to solve the mystery!
 
-## 👥 Players
+## Players
 
 | Character | Description | Starting Advantage |
 |-----------|-------------|-------------------|
@@ -22,48 +22,72 @@ Each player uses deduction and strategy to be the first to solve the mystery!
 | **Professor Plum** | Absent-minded academic | Near Study (Kitchen passage) |
 | **Mrs. White** | The observant housekeeper | Near Ballroom entrance |
 
-## 📜 Official Rules Implemented
+## Official Rules Implemented
 
 Based on the [official Cluedo rules](https://en.wikipedia.org/wiki/Cluedo#Rules):
 
+### Board Layout
+
+The mansion layout with 9 rooms and their door positions:
+
+```
++-------------+-------------+-------------+
+|   KITCHEN   |  BALLROOM   |CONSERVATORY |
+|   (1 door   | (2 doors    |  (1 door    |
+|    south)   |  SW + SE)   |    west)    |
++-------------+-------------+-------------+
+| DINING ROOM |   [CLUE]    |BILLIARD ROOM|
+|  (2 doors   |  Staircase  |  (2 doors   |
+|  N + E)     | (blocked)   |   W + S)    |
++-------------+-------------+-------------+
+|   LOUNGE    |    HALL     |   LIBRARY   |
+|  (1 door    |  (3 doors   |  (2 doors   |
+|    east)    |  NW+N+NE)   |   N + W)    |
++-------------+-------------+-------------+
+|             |             |    STUDY    |
+|             |             |  (1 door    |
+|             |             |   north)    |
++-------------+-------------+-------------+
+```
+
 ### Movement
-- 🎲 **Dice rolling** - Roll two six-sided dice for movement
-- � **Magnifying glass** - Rolling a 1 shows 🔍 instead and gives you a free clue!
-- 🚪 **Adjacent rooms only** - No diagonal movement across the board
-- 🔑 **Secret passages** - Corner rooms connect diagonally:
-  - Kitchen ↔ Study
-  - Conservatory ↔ Lounge
+- **Dice rolling** - Roll two six-sided dice for movement
+- **Magnifying glass** - Rolling a 1 shows a magnifying glass and gives you a free clue!
+- **Doors only** - You can only enter/exit rooms through their specific doors
+- **Secret passages** - Corner rooms connect diagonally (no dice needed):
+  - Kitchen <-> Study (top-left to bottom-right)
+  - Conservatory <-> Lounge (top-right to bottom-left)
 
 ### Suggestions
-- 📍 **Room-based** - You can only suggest while in a room, about THAT room
-- 🔄 **Suspect movement** - Suggested suspect token is moved to your room
-- ⏭️ **Clockwise disproving** - Players go clockwise; first one with a matching card shows ONE card
-- 🚫 **No repeated suggestions** - Cannot suggest again in same room without leaving first (American rules)
-- ✨ **Exception** - If moved to a room by another's suggestion, you can suggest immediately
-- 📓 **Notebook validation** - Warns if suggesting cards already known (crossed out in notebook)
+- **Room-based** - You can only suggest while in a room, about THAT room
+- **Suspect movement** - Suggested suspect token is moved to your room
+- **Clockwise disproving** - Players go clockwise; first one with a matching card shows ONE card
+- **No repeated suggestions** - Cannot suggest again in same room without leaving first (American rules)
+- **Exception** - If moved to a room by another's suggestion, you can suggest immediately
+- **Notebook validation** - Warns if suggesting cards already known (crossed out in notebook)
 
 ### Accusations  
-- 🎯 **Any room** - Accusations can include any room (not just current location)
-- 👀 **Secret check** - You secretly check the solution envelope
-- ✅ **Correct** - You win the game!
-- ❌ **Wrong** - You're eliminated but must still show cards to disprove others
-- ⏱️ **Once per turn** - You can only make one accusation per turn
-- 📓 **Notebook validation** - Accusations are BLOCKED if they include crossed-out cards
+- **Any room** - Accusations can include any room (not just current location)
+- **Secret check** - You secretly check the solution envelope
+- **Correct** - You win the game!
+- **Wrong** - You're eliminated but must still show cards to disprove others
+- **Once per turn** - You can only make one accusation per turn
+- **Notebook validation** - Accusations are BLOCKED if they include crossed-out cards
 
 ### Cards
-- 📝 **21 cards total** - 6 suspects + 6 weapons + 9 rooms
-- 📬 **Solution envelope** - One card of each type hidden
-- 🃏 **Dealt cards** - Remaining cards dealt to players
-- 👁️ **One card shown** - When disproving, show only ONE matching card
+- **21 cards total** - 6 suspects + 6 weapons + 9 rooms
+- **Solution envelope** - One card of each type hidden
+- **Dealt cards** - Remaining cards dealt to players
+- **One card shown** - When disproving, show only ONE matching card
 
-## 🛠️ Technical Stack
+## Technical Stack
 
 - **Framework**: [CrewAI](https://github.com/joaomdmoura/crewAI) for multi-agent orchestration
 - **LLM**: Google Gemini 2.5 Flash
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Python**: 3.11+
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Clone the repository
@@ -78,7 +102,7 @@ cp .env.example .env
 # Edit .env and add your GOOGLE_API_KEY
 ```
 
-## 🚀 Running the Game
+## Running the Game
 
 ```bash
 # Run a full game
@@ -88,7 +112,7 @@ uv run clue-game
 uv run python -m clue_game.main
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 src/clue_game/
@@ -106,11 +130,11 @@ src/clue_game/
     └── notebook_tools.py # Detective notebook tools
 ```
 
-## 🧠 Detective Notebook
+## Detective Notebook
 
 LLMs are notoriously bad at maintaining long-term logic across many turns. To solve this, each agent has a **deterministic Detective Notebook** that:
 
-- Tracks card ownership in a grid (Card × Player)
+- Tracks card ownership in a grid (Card x Player)
 - Records all suggestions and outcomes
 - Auto-deduces solution when all players don't have a card
 - Provides strategic suggestions based on current knowledge
@@ -120,12 +144,12 @@ LLMs are notoriously bad at maintaining long-term logic across many turns. To so
 
 This prevents the AI from "forgetting" crucial information during the game!
 
-## 📋 Environment Variables
+## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `GOOGLE_API_KEY` | Your Google AI API key for Gemini 2.5 Flash |
 
-## 📄 License
+## License
 
 MIT License - See [LICENSE](LICENSE) file

@@ -6,7 +6,7 @@ Tools for agents to interact with the game following official Cluedo/Clue rules.
 from crewai.tools import tool
 from clue_game.game_state import (
     get_game_state, Room, Suspect, Weapon,
-    ROOM_CONNECTIONS, SECRET_PASSAGES, STARTING_POSITIONS
+    ROOM_CONNECTIONS, SECRET_PASSAGES, STARTING_POSITIONS, ROOM_DOORS
 )
 from clue_game.notebook import get_notebook
 
@@ -141,7 +141,8 @@ def get_available_moves(player_name: str) -> str:
     Get the rooms you can move to from your current location.
     
     MOVEMENT RULES:
-    - You can ONLY move to adjacent rooms (connected by doorways)
+    - You can ONLY move to adjacent rooms through DOORS
+    - Each room has specific doors that connect to hallways
     - You CANNOT move diagonally across the board
     - Secret passages exist between diagonal corner rooms:
       * Kitchen ↔ Study
@@ -151,7 +152,7 @@ def get_available_moves(player_name: str) -> str:
         player_name: Your player name
     
     Returns:
-        List of rooms you can legally move to
+        List of rooms you can legally move to with door information
     """
     game_state = get_game_state()
     player = game_state.get_player_by_name(player_name)
@@ -160,26 +161,30 @@ def get_available_moves(player_name: str) -> str:
         return f"Error: Player {player_name} not found"
     
     available = game_state.get_available_moves(player)
-    room_names = [r.value for r in available]
     
     current = player.current_room.value if player.current_room else "nowhere"
+    current_room = player.current_room
     
     result = f"=== AVAILABLE MOVES from {current} ===\n\n"
-    result += "You can move to:\n"
-    for room_name in room_names:
-        # Check if it's a secret passage
-        if current == "Kitchen" and room_name == "Study":
-            result += f"  • {room_name} (via SECRET PASSAGE)\n"
-        elif current == "Study" and room_name == "Kitchen":
-            result += f"  • {room_name} (via SECRET PASSAGE)\n"
-        elif current == "Conservatory" and room_name == "Lounge":
-            result += f"  • {room_name} (via SECRET PASSAGE)\n"
-        elif current == "Lounge" and room_name == "Conservatory":
-            result += f"  • {room_name} (via SECRET PASSAGE)\n"
-        else:
-            result += f"  • {room_name}\n"
     
-    result += "\n⚠️ Remember: You cannot move diagonally! Only through doorways or secret passages."
+    # Show door info for current room
+    if current_room and current_room in ROOM_DOORS:
+        doors = ROOM_DOORS[current_room]
+        result += f"📍 {current} has {len(doors)} door(s):\n"
+        for door_side, connects_to in doors:
+            result += f"   • {door_side.upper()} door → hallway\n"
+        result += "\n"
+    
+    result += "🚪 You can move to:\n"
+    for room in available:
+        room_name = room.value
+        # Check if it's a secret passage
+        if current_room and current_room in SECRET_PASSAGES and SECRET_PASSAGES[current_room] == room:
+            result += f"  • {room_name} (via 🔑 SECRET PASSAGE - no dice needed!)\n"
+        else:
+            result += f"  • {room_name} (through hallway)\n"
+    
+    result += "\n⚠️ Remember: You can only move through doors! No diagonal shortcuts."
     
     return result
 

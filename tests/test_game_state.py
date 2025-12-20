@@ -26,19 +26,29 @@ class TestRoomConnections:
     def test_no_diagonal_movement(self):
         """Rooms should only connect through doorways, not diagonally."""
         # Kitchen is in top-left, Conservatory is in top-right
-        # They should NOT be directly connected (diagonal)
+        # They should NOT be directly connected (diagonal) - only through hallways
         assert Room.CONSERVATORY not in ROOM_CONNECTIONS[Room.KITCHEN]
         assert Room.KITCHEN not in ROOM_CONNECTIONS[Room.CONSERVATORY]
     
     def test_secret_passages_exist(self):
-        """Secret passages should connect diagonal corner rooms."""
-        # Kitchen <-> Study
-        assert Room.STUDY in ROOM_CONNECTIONS[Room.KITCHEN]
-        assert Room.KITCHEN in ROOM_CONNECTIONS[Room.STUDY]
+        """Secret passages should connect diagonal corner rooms via SECRET_PASSAGES dict."""
+        # Secret passages are separate from regular room connections
+        # Kitchen <-> Study (diagonal corners)
+        assert SECRET_PASSAGES[Room.KITCHEN] == Room.STUDY
+        assert SECRET_PASSAGES[Room.STUDY] == Room.KITCHEN
         
-        # Conservatory <-> Lounge
-        assert Room.LOUNGE in ROOM_CONNECTIONS[Room.CONSERVATORY]
-        assert Room.CONSERVATORY in ROOM_CONNECTIONS[Room.LOUNGE]
+        # Conservatory <-> Lounge (diagonal corners)
+        assert SECRET_PASSAGES[Room.CONSERVATORY] == Room.LOUNGE
+        assert SECRET_PASSAGES[Room.LOUNGE] == Room.CONSERVATORY
+    
+    def test_secret_passages_not_in_regular_connections(self):
+        """Secret passages should NOT be in regular ROOM_CONNECTIONS (they're separate)."""
+        # Regular door connections don't include secret passage destinations
+        # (secret passages are handled separately in get_available_moves)
+        assert Room.STUDY not in ROOM_CONNECTIONS[Room.KITCHEN]
+        assert Room.KITCHEN not in ROOM_CONNECTIONS[Room.STUDY]
+        assert Room.LOUNGE not in ROOM_CONNECTIONS[Room.CONSERVATORY]
+        assert Room.CONSERVATORY not in ROOM_CONNECTIONS[Room.LOUNGE]
     
     def test_secret_passages_dict(self):
         """SECRET_PASSAGES dict should have correct mappings."""
@@ -385,8 +395,12 @@ class TestAccusations:
         game = reset_game_state()
         game.setup_game(["P1", "P2"])
         
+        # Get the players by name to avoid ordering issues
+        p1 = game.get_player_by_name("P1")
+        p2 = game.get_player_by_name("P2")
+        
         # P1 makes wrong accusation
-        game.make_accusation(game.players[0], "Wrong", "Wrong", "Wrong")
+        game.make_accusation(p1, "Wrong", "Wrong", "Wrong")
         
         # Now only P2 is active, so P2 wins
         assert game.game_over == True

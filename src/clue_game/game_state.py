@@ -49,37 +49,58 @@ class Room(Enum):
     DINING_ROOM = "Dining Room"
 
 
-# Room adjacency for movement (simplified board)
-# Based on classic Clue board layout with secret passages in corner rooms
+# Door positions for each room (based on actual Clue board)
+# Each room has specific doors that connect to hallways
+# Format: { Room: [(door_side, connects_to_hallway_toward), ...] }
+ROOM_DOORS = {
+    Room.KITCHEN: [("south", "toward_ballroom_hallway")],  # 1 door on bottom
+    Room.BALLROOM: [("southwest", "toward_kitchen"), ("southeast", "toward_conservatory")],  # 2 doors on bottom corners
+    Room.CONSERVATORY: [("west", "toward_billiard_hallway")],  # 1 door on left side
+    Room.BILLIARD_ROOM: [("west", "toward_hall_hallway"), ("south", "toward_library")],  # 2 doors
+    Room.LIBRARY: [("north", "toward_billiard"), ("west", "toward_study_hallway")],  # 2 doors
+    Room.STUDY: [("north", "toward_library_hallway")],  # 1 door on top
+    Room.HALL: [("northwest", "toward_lounge"), ("north", "toward_billiard"), ("northeast", "toward_study")],  # 3 doors on top
+    Room.LOUNGE: [("east", "toward_hall")],  # 1 door on right side
+    Room.DINING_ROOM: [("north", "toward_kitchen_hallway"), ("east", "toward_lounge_hallway")],  # 2 doors
+}
+
+# Room adjacency for movement - based on ACTUAL board layout with hallway connections
+# Rooms connect through hallways via their doors - NO diagonal shortcuts except secret passages
+# Verified against the physical Clue board image
 ROOM_CONNECTIONS = {
-    Room.KITCHEN: [Room.BALLROOM, Room.DINING_ROOM, Room.STUDY],  # Study via secret passage
-    Room.BALLROOM: [Room.KITCHEN, Room.CONSERVATORY],
-    Room.CONSERVATORY: [Room.BALLROOM, Room.BILLIARD_ROOM, Room.LOUNGE],  # Lounge via secret passage
-    Room.BILLIARD_ROOM: [Room.CONSERVATORY, Room.LIBRARY, Room.HALL],
-    Room.LIBRARY: [Room.BILLIARD_ROOM, Room.STUDY],
-    Room.STUDY: [Room.LIBRARY, Room.HALL, Room.KITCHEN],  # Kitchen via secret passage
-    Room.HALL: [Room.BILLIARD_ROOM, Room.STUDY, Room.LOUNGE],
-    Room.LOUNGE: [Room.HALL, Room.DINING_ROOM, Room.CONSERVATORY],  # Conservatory via secret passage
-    Room.DINING_ROOM: [Room.LOUNGE, Room.KITCHEN],
+    # Top row
+    Room.KITCHEN: [Room.BALLROOM, Room.DINING_ROOM],  # Door leads to hallway connecting to Ballroom and down to Dining Room
+    Room.BALLROOM: [Room.KITCHEN, Room.CONSERVATORY],  # Two doors on bottom - left to Kitchen, right to Conservatory
+    Room.CONSERVATORY: [Room.BALLROOM, Room.BILLIARD_ROOM],  # Door on left leads to Ballroom and down to Billiard
+    
+    # Middle row
+    Room.DINING_ROOM: [Room.KITCHEN, Room.LOUNGE],  # Door up to Kitchen, door right connects down to Lounge
+    Room.BILLIARD_ROOM: [Room.CONSERVATORY, Room.LIBRARY, Room.HALL],  # Left door to Conservatory hallway, bottom to Library, can reach Hall
+    
+    # Bottom row  
+    Room.LIBRARY: [Room.BILLIARD_ROOM, Room.STUDY],  # Top door to Billiard, left door to Study hallway
+    Room.LOUNGE: [Room.DINING_ROOM, Room.HALL],  # Up to Dining Room hallway, right to Hall
+    Room.HALL: [Room.LOUNGE, Room.BILLIARD_ROOM, Room.STUDY],  # Left to Lounge, up to Billiard hallway, right to Study
+    Room.STUDY: [Room.HALL, Room.LIBRARY],  # Left/top door to Hall, can reach Library through hallway
 }
 
-# Secret passages connect diagonal corner rooms
+# Secret passages connect diagonal corner rooms (can use instead of door movement)
 SECRET_PASSAGES = {
-    Room.KITCHEN: Room.STUDY,
-    Room.STUDY: Room.KITCHEN,
-    Room.CONSERVATORY: Room.LOUNGE,
-    Room.LOUNGE: Room.CONSERVATORY,
+    Room.KITCHEN: Room.STUDY,        # Top-left to bottom-right
+    Room.STUDY: Room.KITCHEN,        # Bottom-right to top-left
+    Room.CONSERVATORY: Room.LOUNGE,  # Top-right to bottom-left
+    Room.LOUNGE: Room.CONSERVATORY,  # Bottom-left to top-right
 }
 
-# Starting positions for each suspect (at edge of board, near specific rooms)
-# Mrs. Peacock starts closest to the Conservatory - one space advantage!
+# Starting positions for each suspect (at hallway squares near room entrances)
+# Based on the colored starting squares around the board edge
 STARTING_POSITIONS = {
-    Suspect.MISS_SCARLET: Room.HALL,      # Near Hall entrance
-    Suspect.COLONEL_MUSTARD: Room.LOUNGE, # Near Lounge entrance
-    Suspect.MRS_WHITE: Room.BALLROOM,     # Near Ballroom entrance
-    Suspect.MR_GREEN: Room.CONSERVATORY,  # Near Conservatory entrance
-    Suspect.MRS_PEACOCK: Room.CONSERVATORY, # Closest to first room (1 space advantage!)
-    Suspect.PROFESSOR_PLUM: Room.STUDY,   # Near Study entrance
+    Suspect.MISS_SCARLET: Room.HALL,        # Red - starts near Hall (goes first!)
+    Suspect.COLONEL_MUSTARD: Room.LOUNGE,   # Yellow - starts near Lounge entrance
+    Suspect.MRS_WHITE: Room.BALLROOM,       # White - starts near Ballroom entrance  
+    Suspect.MR_GREEN: Room.CONSERVATORY,    # Green - starts near Conservatory entrance
+    Suspect.MRS_PEACOCK: Room.CONSERVATORY, # Blue - starts near Conservatory (closest to room!)
+    Suspect.PROFESSOR_PLUM: Room.STUDY,     # Purple - starts near Study entrance
 }
 
 
@@ -232,10 +253,26 @@ class GameState:
         new_current.has_accused_this_turn = False
     
     def get_available_moves(self, player: Player) -> list[Room]:
-        """Get rooms a player can move to from their current position."""
+        """
+        Get rooms a player can move to from their current position.
+        
+        Movement options:
+        1. Regular door connections (through hallways)
+        2. Secret passages (corner rooms only: Kitchen<->Study, Conservatory<->Lounge)
+        """
         if player.current_room is None:
             return list(Room)
-        return ROOM_CONNECTIONS.get(player.current_room, [])
+        
+        # Start with regular door/hallway connections
+        available = list(ROOM_CONNECTIONS.get(player.current_room, []))
+        
+        # Add secret passage destination if in a corner room
+        if player.current_room in SECRET_PASSAGES:
+            secret_dest = SECRET_PASSAGES[player.current_room]
+            if secret_dest not in available:
+                available.append(secret_dest)
+        
+        return available
     
     def move_player(self, player: Player, room: Room) -> bool:
         """Move a player to a room if valid."""
