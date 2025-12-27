@@ -23,6 +23,7 @@ announce_turn_task:
     2. Their current location
     3. A brief summary of the game state
     4. Reminder that they should move to a room and make a suggestion
+    5. IMPORTANT: You may only make a suggestion if you entered a room this turn (by movement or secret passage).
     
     Current player: {current_player}
     Turn number: {turn_number}
@@ -49,7 +50,25 @@ player_turn_task:
     6. Analyze the response - if someone disproves it, that card is NOT the solution
     7. If you're confident you know the solution, you may make an accusation
     
-    STRATEGY TIPS:
+    CRITICAL NOTEBOOK STRATEGY:
+    - Track ALL cards shown, not just to you, but to any player (these are announced to all agents).
+    - When a suggestion is made and a player cannot disprove, mark those cards as NOT held by that player.
+    - If a player disproves a suggestion, mark that player as holding the shown card, and all previous players in the disproval order as NOT holding any of the suggested cards.
+    - Use the order of disprovals to eliminate possibilities for all players, not just yourself.
+    - Aggressively eliminate cards from your notebook using all available deduction, including indirect clues from other agents' turns.
+    - If a clue card is revealed (e.g., via magnifying glass or suggestion disproval), immediately:
+      - Mark the holder as having that card
+      - Mark all other players and the envelope as NOT having it
+      - Eliminate it from suspicion everywhere else in your notebook
+    
+    CRITICAL MOVEMENT STRATEGY:
+    - AVOID rooms you hold cards for! Suggesting there is WASTED since you already know it's not the solution.
+    - PRIORITIZE rooms you DON'T have cards for - these give you new information.
+    - Use 'Get Available Moves' to see which rooms are recommended vs which to avoid.
+    - If you're in a room you have the card for, LEAVE immediately and go elsewhere.
+    - Secret passages to rooms you don't have are excellent choices!
+    
+    GENERAL STRATEGY TIPS:
     - Cards in YOUR hand are definitely NOT the solution
     - Cards shown to you by others are NOT the solution
     - If NO ONE can disprove a suggestion, those items are likely the solution

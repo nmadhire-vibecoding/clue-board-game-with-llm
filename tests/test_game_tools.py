@@ -180,6 +180,66 @@ class TestGetAvailableMoves:
         result = get_available_moves.func(player_name="TestPlayer")
         
         assert "diagonal" in result.lower() or "doorway" in result.lower()
+    
+    def test_warns_about_rooms_in_hand(self):
+        """Should warn player about rooms they hold cards for."""
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        player = game.get_player_by_name("TestPlayer")
+        
+        # Give player a room card
+        from clue_game.game_state import Card
+        player.cards = [Card("Kitchen", "room")]
+        
+        player.current_room = Room.KITCHEN
+        player.in_hallway = False
+        
+        result = get_available_moves.func(player_name="TestPlayer")
+        
+        # Should show strategic advice about avoiding this room
+        assert "Kitchen" in result
+        assert "STRATEGIC" in result or "AVOID" in result or "WARNING" in result
+    
+    def test_recommends_rooms_not_in_hand(self):
+        """Should recommend rooms player doesn't have cards for."""
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        player = game.get_player_by_name("TestPlayer")
+        
+        # Give player a room card for Kitchen only
+        from clue_game.game_state import Card
+        player.cards = [Card("Kitchen", "room")]
+        
+        # Put player in hallway with moves
+        player.current_room = None
+        player.in_hallway = True
+        player.position = (12, 5)  # Near multiple rooms
+        player.moves_remaining = 10
+        
+        result = get_available_moves.func(player_name="TestPlayer")
+        
+        # Should show strategic advice
+        assert "STRATEGIC" in result or "AVOID" in result or "hold" in result.lower()
+    
+    def test_secret_passage_recommendation(self):
+        """Should indicate if secret passage leads to good/bad room."""
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        player = game.get_player_by_name("TestPlayer")
+        
+        # Give player the Study card
+        from clue_game.game_state import Card
+        player.cards = [Card("Study", "room")]
+        
+        # Put player in Kitchen (which has passage to Study)
+        player.current_room = Room.KITCHEN
+        player.in_hallway = False
+        
+        result = get_available_moves.func(player_name="TestPlayer")
+        
+        # Should show secret passage with warning since they have Study card
+        assert "SECRET PASSAGE" in result
+        assert "Study" in result
 
 
 class TestMoveToRoom:

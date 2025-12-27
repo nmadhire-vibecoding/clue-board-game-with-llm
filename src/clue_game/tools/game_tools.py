@@ -239,7 +239,7 @@ def get_available_moves(player_name: str) -> str:
         player_name: Your player name
     
     Returns:
-        List of rooms you can reach with current movement
+        List of rooms you can reach with current movement, with strategic recommendations
     """
     game_state = get_game_state()
     player = game_state.get_player_by_name(player_name)
@@ -247,12 +247,29 @@ def get_available_moves(player_name: str) -> str:
     if not player:
         return f"Error: Player {player_name} not found"
     
+    # Get rooms the player holds cards for (should avoid these for suggestions)
+    rooms_in_hand = set()
+    for card in player.cards:
+        if card.card_type == "room":
+            rooms_in_hand.add(card.name)
+    
     result = "=== AVAILABLE MOVES ===\n\n"
+    
+    # Show strategic advice upfront
+    if rooms_in_hand:
+        result += "🎯 STRATEGIC ADVICE:\n"
+        result += f"   ⚠️ You hold these room cards: {', '.join(rooms_in_hand)}\n"
+        result += "   → AVOID these rooms! Suggesting there wastes your turn.\n"
+        result += "   → Move to rooms you DON'T have cards for to gather info.\n\n"
     
     # Show current location
     if player.current_room and not player.in_hallway:
         current = player.current_room.value
         result += f"📍 Current location: {current}\n"
+        
+        # Warn if current room is in hand
+        if current in rooms_in_hand:
+            result += f"   ⚠️ WARNING: You hold the {current} card - leave this room!\n"
         
         # Show doors to exit
         doors = game_state.get_room_doors(player.current_room)
@@ -269,10 +286,15 @@ def get_available_moves(player_name: str) -> str:
         # Show secret passage if available
         if player.current_room in SECRET_PASSAGES:
             dest = SECRET_PASSAGES[player.current_room]
-            result += f"\n🔑 SECRET PASSAGE to {dest.value}!\n"
+            is_good_dest = dest.value not in rooms_in_hand
+            result += f"\n🔑 SECRET PASSAGE to {dest.value}!"
+            if is_good_dest:
+                result += " ✅ RECOMMENDED - you don't have this room card!\n"
+            else:
+                result += " ⚠️ You have this room card - consider other options.\n"
             result += "   (Using passage ends your turn immediately)\n"
         
-        result += f"\n💡 Roll dice first to get movement points, then use 'Move To Room'."
+        result += f"\n💡 Roll dice first to get movement points, then use 'Move To Room'.\n"
         
     else:
         # In hallway
@@ -291,9 +313,28 @@ def get_available_moves(player_name: str) -> str:
             reachable = game_state.get_reachable_rooms(player)
             
             if reachable:
-                result += "🚪 ROOMS YOU CAN REACH:\n"
+                # Separate into recommended and not recommended
+                recommended = []
+                avoid = []
                 for room, distance, path in reachable:
-                    result += f"   • {room.value} - {distance} steps\n"
+                    if room.value in rooms_in_hand:
+                        avoid.append((room, distance, path))
+                    else:
+                        recommended.append((room, distance, path))
+                
+                if recommended:
+                    result += "✅ RECOMMENDED ROOMS (you don't have these cards):\n"
+                    for room, distance, path in recommended:
+                        result += f"   • {room.value} - {distance} steps ← BEST CHOICE\n"
+                
+                if avoid:
+                    result += "\n⚠️ AVOID THESE ROOMS (you have the card):\n"
+                    for room, distance, path in avoid:
+                        result += f"   • {room.value} - {distance} steps ← SKIP THIS\n"
+                
+                if not recommended and avoid:
+                    result += "\n💡 All reachable rooms are ones you have cards for.\n"
+                    result += "   Consider moving closer to other rooms instead.\n"
             else:
                 result += "⚠️ No rooms reachable with current moves.\n"
                 result += "   You need to roll more moves or position closer.\n"
@@ -304,7 +345,9 @@ def get_available_moves(player_name: str) -> str:
                 result += f"\n🚶 Adjacent squares you can step to:\n"
                 for row, col, room in valid_moves[:5]:  # Limit display
                     if room:
-                        result += f"   • ({row}, {col}) → Enter {room.value}\n"
+                        is_good = room.value not in rooms_in_hand
+                        marker = "✅" if is_good else "⚠️"
+                        result += f"   • ({row}, {col}) → Enter {room.value} {marker}\n"
                     else:
                         result += f"   • ({row}, {col}) - hallway\n"
     
