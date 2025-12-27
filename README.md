@@ -121,7 +121,7 @@ The mansion layout with 9 rooms and their door positions:
 
 ### Movement
 - **Dice rolling** - Roll two six-sided dice for movement
-- **Magnifying glass** - Rolling a 1 shows a magnifying glass and gives you a free clue!
+- **Magnifying glass** - Rolling a 1 shows a magnifying glass, counts as 1 for movement AND gives you a free clue!
 - **Doors only** - You can only enter/exit rooms through their specific doors
 - **Secret passages** - Corner rooms connect diagonally (no dice needed):
   - Kitchen <-> Study (top-left to bottom-right)
@@ -129,6 +129,8 @@ The mansion layout with 9 rooms and their door positions:
 
 ### Suggestions
 - **Room-based** - You can only suggest while in a room, about THAT room
+- **Must enter room** - You must ENTER a room during your turn to suggest (rolling dice and moving in, or using a secret passage)
+- **Cannot suggest if staying** - If you were already in a room and didn't leave, you cannot suggest
 - **Suspect movement** - Suggested suspect token is moved to your room
 - **Clockwise disproving** - Players go clockwise; first one with a matching card shows ONE card
 - **No repeated suggestions** - Cannot suggest again in same room without leaving first (American rules)
