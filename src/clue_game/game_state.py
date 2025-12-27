@@ -3,8 +3,12 @@ Game State Management for Clue Board Game
 Based on official Cluedo/Clue rules (https://en.wikipedia.org/wiki/Cluedo#Rules)
 
 Key rules implemented:
-- Dice rolling for movement
-- Clockwise turn order starting with Miss Scarlet (or highest roll)
+- Dice rolling for movement (move exactly that many squares)
+- Movement is horizontal or vertical only (no diagonal)
+- Cannot pass through or land on occupied hallway squares
+- Movement stops upon entering a room (even if moves remain)
+- Cannot visit the same square twice in one turn
+- Clockwise turn order starting with Miss Scarlet
 - Secret passages between diagonal corner rooms
 - Suggestions can only be made in rooms, about that room
 - Suggested suspect/weapon tokens move to the room
@@ -15,7 +19,7 @@ Key rules implemented:
 
 import random
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple, List, Set
 from enum import Enum
 
 
@@ -49,7 +53,212 @@ class Room(Enum):
     DINING_ROOM = "Dining Room"
 
 
-# Door positions for each room (based on actual Clue board)
+# Cell types for the board grid
+class CellType(Enum):
+    WALL = "W"           # Impassable wall/void
+    HALLWAY = "H"        # Walkable hallway square
+    ROOM = "R"           # Inside a room (can't walk through)
+    DOOR = "D"           # Room entrance/exit
+    START = "S"          # Starting position
+
+
+# ============================================================================
+# BOARD GRID DEFINITION
+# The Clue board is represented as a 25x24 grid (columns x rows)
+# Based on the actual Hasbro Clue board layout
+# 
+# Legend:
+#   W = Wall/void (impassable)
+#   H = Hallway (walkable)
+#   K = Kitchen, B = Ballroom, C = Conservatory
+#   D = Dining Room, I = Billiard Room, L = Library  
+#   O = Lounge, A = Hall, S = Study
+#   1-6 = Starting positions for each suspect
+#   d = Door (room entrance)
+# ============================================================================
+
+# Board dimensions
+BOARD_WIDTH = 24   # columns (0-23)
+BOARD_HEIGHT = 25  # rows (0-24)
+
+# Room codes for the grid (maps to Room enum)
+ROOM_CODES = {
+    'K': Room.KITCHEN,
+    'B': Room.BALLROOM,
+    'C': Room.CONSERVATORY,
+    'D': Room.DINING_ROOM,
+    'I': Room.BILLIARD_ROOM,
+    'L': Room.LIBRARY,
+    'O': Room.LOUNGE,
+    'A': Room.HALL,
+    'S': Room.STUDY,
+}
+
+# Starting position codes map to suspects
+START_CODES = {
+    '1': Suspect.MISS_SCARLET,     # Bottom - near Hall
+    '2': Suspect.COLONEL_MUSTARD,   # Right side - near Lounge
+    '3': Suspect.MRS_WHITE,         # Top - near Ballroom  
+    '4': Suspect.MR_GREEN,          # Top - near Conservatory
+    '5': Suspect.MRS_PEACOCK,       # Left side - near Conservatory
+    '6': Suspect.PROFESSOR_PLUM,    # Left side - near Library
+}
+
+# The actual board layout as a string grid
+# Each row is a string of 24 characters
+# Doors are marked with lowercase letters matching the room
+BOARD_LAYOUT = [
+    # Row 0 (top edge)
+    "WWWWWWWWWW3WWWWW4WWWWWWWW",
+    # Row 1
+    "KKKKKK.WHHHHHHHHWW.CCCCCC",
+    # Row 2
+    "KKKKKK.HHHWWWWWWHH.CCCCCC",
+    # Row 3
+    "KKKKKK.HHWWBBBBWWH.CCCCCC",
+    # Row 4
+    "KKKKKK.HHWBBBBBBWH.CCCCCC",
+    # Row 5
+    "KKKKKK.HHbBBBBBBbH.CCCCCc",
+    # Row 6
+    "WWWWWWkHHWBBBBBBWHHHHHHHW",
+    # Row 7
+    "HHHHHHHHHWWWWWWWWHHHHHHH5",
+    # Row 8
+    "W.HHHHHHHHHHHHHHHHHHHHHHW",
+    # Row 9
+    "DDDDDD.HHHHHHHHHHHHW.IIII",
+    # Row 10
+    "DDDDDD.HHHHHHHHHHHHW.IIII",
+    # Row 11
+    "DDDDDD.HHHHHHHHHHHHW.IIII",
+    # Row 12
+    "DDDDDDdHHWWWWWWWWHHiIIIII",
+    # Row 13
+    "DDDDDD.HHWAAAAAWHHHHIIIII",
+    # Row 14
+    "DDDDDD.HHaAAAAAaHHHHWiWWW",
+    # Row 15
+    "WWWWWW.HHWAAAAAAWHHHHHHHH",
+    # Row 16
+    "WHHHHHHHHHWAAAAAWHHHHHHH6",
+    # Row 17
+    "W.HHHHHHHHWAAAAAAWHHHHHWW",
+    # Row 18
+    "OOOOOOoHHWWWWaWWWHH.LLLLL",
+    # Row 19
+    "OOOOOOO.HHHHHHHHHHH.LLLLL",
+    # Row 20
+    "OOOOOOO.HHWWWWWWWHH.LLLLl",
+    # Row 21
+    "OOOOOOO.HHWSSSSSWHHlLLLLL",
+    # Row 22
+    "OOOOOOO.HHWSSSSSWHH.LLLLL",
+    # Row 23
+    "WWWWWWW2HHsSSSSSsHHWWWWWW",
+    # Row 24 (bottom edge)
+    "WWWWWWWWWHHH1HHHHHWWWWWWW",
+]
+
+# Door positions and which room they belong to
+# Format: (row, col): Room
+DOOR_POSITIONS = {
+    # Kitchen door (row 6, col 6)
+    (6, 6): Room.KITCHEN,
+    # Ballroom doors (row 5)
+    (5, 8): Room.BALLROOM,
+    (5, 15): Room.BALLROOM,
+    # Conservatory door (row 5, col 22)
+    (5, 22): Room.CONSERVATORY,
+    # Dining Room door (row 12, col 6)
+    (12, 6): Room.DINING_ROOM,
+    # Billiard Room doors
+    (12, 17): Room.BILLIARD_ROOM,
+    (14, 21): Room.BILLIARD_ROOM,
+    # Hall doors (row 14)
+    (14, 9): Room.HALL,
+    (14, 15): Room.HALL,
+    (18, 14): Room.HALL,
+    # Lounge door (row 18, col 6)
+    (18, 6): Room.LOUNGE,
+    # Library doors
+    (20, 22): Room.LIBRARY,
+    (21, 17): Room.LIBRARY,
+    # Study doors (row 23)
+    (23, 9): Room.STUDY,
+    (23, 16): Room.STUDY,
+}
+
+# Starting positions (grid coordinates)
+# Format: Suspect: (row, col)
+STARTING_GRID_POSITIONS = {
+    Suspect.MISS_SCARLET: (24, 11),     # Bottom center - '1' on board
+    Suspect.COLONEL_MUSTARD: (23, 7),   # Bottom right area - '2' on board  
+    Suspect.MRS_WHITE: (0, 10),         # Top - '3' on board
+    Suspect.MR_GREEN: (0, 15),          # Top right - '4' on board
+    Suspect.MRS_PEACOCK: (7, 23),       # Right side - '5' on board
+    Suspect.PROFESSOR_PLUM: (16, 23),   # Right side lower - '6' on board
+}
+
+# Inverse mapping for display
+SUSPECT_START_CODES = {v: k for k, v in START_CODES.items()}
+
+
+def get_cell_type(row: int, col: int) -> Tuple[CellType, Optional[Room]]:
+    """
+    Get the cell type and room (if applicable) at a grid position.
+    
+    Returns:
+        (CellType, Room or None)
+    """
+    if row < 0 or row >= BOARD_HEIGHT or col < 0 or col >= BOARD_WIDTH:
+        return (CellType.WALL, None)
+    
+    char = BOARD_LAYOUT[row][col]
+    
+    if char == 'W':
+        return (CellType.WALL, None)
+    elif char == 'H' or char == '.':
+        return (CellType.HALLWAY, None)
+    elif char in '123456':
+        return (CellType.START, None)
+    elif char.isupper() and char in ROOM_CODES:
+        return (CellType.ROOM, ROOM_CODES[char])
+    elif char.islower():
+        # Door - find which room it belongs to
+        room_char = char.upper()
+        if room_char in ROOM_CODES:
+            return (CellType.DOOR, ROOM_CODES[room_char])
+    
+    return (CellType.HALLWAY, None)
+
+
+def is_walkable(row: int, col: int, entering_room_ok: bool = True) -> bool:
+    """Check if a cell is walkable (hallway, start, or door)."""
+    cell_type, _ = get_cell_type(row, col)
+    if cell_type == CellType.HALLWAY or cell_type == CellType.START:
+        return True
+    if cell_type == CellType.DOOR and entering_room_ok:
+        return True
+    return False
+
+
+def get_room_at_door(row: int, col: int) -> Optional[Room]:
+    """Get the room that a door leads to."""
+    cell_type, room = get_cell_type(row, col)
+    if cell_type == CellType.DOOR:
+        return room
+    return None
+
+
+def get_adjacent_cells(row: int, col: int) -> List[Tuple[int, int]]:
+    """Get orthogonally adjacent cells (no diagonal movement)."""
+    return [
+        (row - 1, col),  # Up
+        (row + 1, col),  # Down
+        (row, col - 1),  # Left
+        (row, col + 1),  # Right
+    ]
 # Each room has specific doors that connect to hallways
 # Format: { Room: [(door_side, connects_to_hallway_toward), ...] }
 ROOM_DOORS = {
@@ -167,6 +376,11 @@ class Player:
     has_accused_this_turn: bool = False  # Can only accuse once per turn
     in_hallway: bool = True  # True when player is in hallway (starting position or between rooms)
     
+    # Grid-based position tracking
+    position: Optional[Tuple[int, int]] = None  # (row, col) on the board grid
+    moves_remaining: int = 0  # Moves left in current turn
+    visited_this_turn: Set[Tuple[int, int]] = field(default_factory=set)  # Squares visited this turn
+    
     def __post_init__(self):
         # Initialize knowledge tracking
         self.knowledge = {
@@ -178,6 +392,18 @@ class Player:
             "eliminated_weapons": [],
             "eliminated_rooms": [],
         }
+        # Initialize visited_this_turn as a set
+        if self.visited_this_turn is None:
+            self.visited_this_turn = set()
+    
+    def get_position_display(self) -> str:
+        """Get a human-readable position description."""
+        if self.current_room and not self.in_hallway:
+            return self.current_room.value
+        elif self.position:
+            return f"Hallway ({self.position[0]}, {self.position[1]})"
+        else:
+            return STARTING_POSITION_NAMES.get(self.character, "Unknown")
 
 
 @dataclass
@@ -225,12 +451,17 @@ class GameState:
         self.players = []
         for i, name in enumerate(player_names):
             character = available_characters[i]
+            # Get starting grid position for this character
+            start_pos = STARTING_GRID_POSITIONS.get(character, (0, 0))
             # Players start in hallway (current_room = None, in_hallway = True)
             player = Player(
                 name=name,
                 character=character,
                 current_room=None,  # Not in any room yet - in hallway at START
                 in_hallway=True,
+                position=start_pos,  # Grid position
+                moves_remaining=0,
+                visited_this_turn=set(),
             )
             self.players.append(player)
         
@@ -305,12 +536,250 @@ class GameState:
             old_room = player.current_room
             player.current_room = room
             player.in_hallway = False  # Player is now in a room
+            player.position = None  # Clear grid position when in room
+            player.moves_remaining = 0  # Movement ends upon entering room
             # Track that player has moved (for repeated suggestion rule)
             if old_room != room:
                 player.has_moved_since_suggestion = True
                 player.was_moved_by_suggestion = False  # They moved voluntarily
             return True
         return False
+    
+    # ========================================================================
+    # GRID-BASED MOVEMENT METHODS
+    # ========================================================================
+    
+    def start_turn(self, player: Player, dice_total: int) -> None:
+        """
+        Start a player's turn with the given dice roll.
+        Sets up movement tracking for the turn.
+        """
+        player.moves_remaining = dice_total
+        player.visited_this_turn = set()
+        # Mark current position as visited
+        if player.position:
+            player.visited_this_turn.add(player.position)
+    
+    def get_occupied_positions(self, exclude_player: Optional[Player] = None) -> Set[Tuple[int, int]]:
+        """Get all grid positions currently occupied by players in hallways."""
+        occupied = set()
+        for p in self.players:
+            if p.position and p.in_hallway and p != exclude_player:
+                occupied.add(p.position)
+        return occupied
+    
+    def can_move_to_cell(self, player: Player, row: int, col: int, 
+                          occupied: Set[Tuple[int, int]]) -> Tuple[bool, Optional[Room]]:
+        """
+        Check if a player can move to a specific cell.
+        
+        Returns:
+            (can_move, room_if_entering) - True if can move, and the Room if this is a door
+        """
+        # Check bounds
+        if row < 0 or row >= BOARD_HEIGHT or col < 0 or col >= BOARD_WIDTH:
+            return (False, None)
+        
+        # Check if already visited this turn (no double-crossing)
+        if (row, col) in player.visited_this_turn:
+            return (False, None)
+        
+        # Check if occupied by another player
+        if (row, col) in occupied:
+            return (False, None)
+        
+        cell_type, room = get_cell_type(row, col)
+        
+        if cell_type == CellType.WALL or cell_type == CellType.ROOM:
+            return (False, None)
+        
+        if cell_type == CellType.DOOR:
+            # Can enter room through door
+            return (True, room)
+        
+        if cell_type == CellType.HALLWAY or cell_type == CellType.START:
+            return (True, None)
+        
+        return (False, None)
+    
+    def get_valid_moves_from_position(self, player: Player) -> List[Tuple[int, int, Optional[Room]]]:
+        """
+        Get all valid moves from player's current position.
+        
+        Returns list of (row, col, room_if_door) tuples.
+        Room is None for hallway moves, or the Room if stepping on a door.
+        """
+        if not player.position or player.moves_remaining <= 0:
+            return []
+        
+        occupied = self.get_occupied_positions(exclude_player=player)
+        valid_moves = []
+        
+        for adj_row, adj_col in get_adjacent_cells(player.position[0], player.position[1]):
+            can_move, room = self.can_move_to_cell(player, adj_row, adj_col, occupied)
+            if can_move:
+                valid_moves.append((adj_row, adj_col, room))
+        
+        return valid_moves
+    
+    def move_player_one_step(self, player: Player, row: int, col: int) -> Tuple[bool, Optional[Room], str]:
+        """
+        Move a player one step to an adjacent cell.
+        
+        Returns:
+            (success, room_entered, message)
+            - success: True if move was valid
+            - room_entered: The Room if player entered a room, None otherwise
+            - message: Description of what happened
+        """
+        if player.moves_remaining <= 0:
+            return (False, None, "No moves remaining")
+        
+        if not player.position:
+            return (False, None, "Player has no grid position (in room)")
+        
+        # Check if target is adjacent
+        current_row, current_col = player.position
+        if abs(row - current_row) + abs(col - current_col) != 1:
+            return (False, None, "Can only move to adjacent squares (no diagonal)")
+        
+        occupied = self.get_occupied_positions(exclude_player=player)
+        can_move, room = self.can_move_to_cell(player, row, col, occupied)
+        
+        if not can_move:
+            # Determine reason
+            if (row, col) in player.visited_this_turn:
+                return (False, None, "Cannot visit the same square twice in one turn")
+            if (row, col) in occupied:
+                return (False, None, "Square is occupied by another player")
+            return (False, None, "Cannot move to that square (wall or room interior)")
+        
+        # Execute the move
+        old_pos = player.position
+        player.position = (row, col)
+        player.visited_this_turn.add((row, col))
+        player.moves_remaining -= 1
+        
+        if room:
+            # Entered a room through door - movement ends
+            player.current_room = room
+            player.in_hallway = False
+            player.position = None  # Clear grid position
+            player.moves_remaining = 0  # Movement ends
+            player.has_moved_since_suggestion = True
+            player.was_moved_by_suggestion = False
+            return (True, room, f"Entered {room.value}! Movement ends.")
+        
+        return (True, None, f"Moved to ({row}, {col}). {player.moves_remaining} moves remaining.")
+    
+    def get_reachable_rooms(self, player: Player) -> List[Tuple[Room, int, List[Tuple[int, int]]]]:
+        """
+        Find all rooms reachable with the player's remaining moves.
+        Uses BFS to find shortest paths to room doors.
+        
+        Returns:
+            List of (Room, distance, path) tuples for reachable rooms
+        """
+        if not player.position or player.moves_remaining <= 0:
+            return []
+        
+        from collections import deque
+        
+        occupied = self.get_occupied_positions(exclude_player=player)
+        start = player.position
+        
+        # BFS to find all reachable doors
+        queue = deque([(start, 0, [start])])  # (position, distance, path)
+        visited = {start}
+        reachable_rooms = []
+        
+        while queue:
+            pos, dist, path = queue.popleft()
+            
+            if dist >= player.moves_remaining:
+                continue
+            
+            for adj_row, adj_col in get_adjacent_cells(pos[0], pos[1]):
+                next_pos = (adj_row, adj_col)
+                
+                if next_pos in visited or next_pos in player.visited_this_turn:
+                    continue
+                if next_pos in occupied:
+                    continue
+                
+                cell_type, room = get_cell_type(adj_row, adj_col)
+                
+                if cell_type == CellType.DOOR:
+                    # Found a room door
+                    new_path = path + [next_pos]
+                    reachable_rooms.append((room, dist + 1, new_path))
+                    visited.add(next_pos)
+                elif cell_type in (CellType.HALLWAY, CellType.START):
+                    visited.add(next_pos)
+                    queue.append((next_pos, dist + 1, path + [next_pos]))
+        
+        return reachable_rooms
+    
+    def exit_room_to_hallway(self, player: Player, door_position: Tuple[int, int]) -> bool:
+        """
+        Move a player from a room to a hallway through a specific door.
+        This uses 1 move and places the player at the door position.
+        """
+        if not player.current_room:
+            return False
+        
+        # Verify door belongs to current room
+        cell_type, room = get_cell_type(door_position[0], door_position[1])
+        if cell_type != CellType.DOOR or room != player.current_room:
+            return False
+        
+        # Check if door is blocked
+        occupied = self.get_occupied_positions(exclude_player=player)
+        if door_position in occupied:
+            return False
+        
+        # Exit to hallway
+        player.current_room = None
+        player.in_hallway = True
+        player.position = door_position
+        player.visited_this_turn.add(door_position)
+        if player.moves_remaining > 0:
+            player.moves_remaining -= 1
+        player.has_moved_since_suggestion = True
+        player.was_moved_by_suggestion = False
+        
+        return True
+    
+    def get_room_doors(self, room: Room) -> List[Tuple[int, int]]:
+        """Get all door positions for a room."""
+        doors = []
+        for pos, r in DOOR_POSITIONS.items():
+            if r == room:
+                doors.append(pos)
+        return doors
+    
+    def use_secret_passage(self, player: Player) -> Tuple[bool, str]:
+        """
+        Use a secret passage if available.
+        
+        Returns:
+            (success, message)
+        """
+        if not player.current_room:
+            return (False, "Must be in a room to use secret passage")
+        
+        if player.current_room not in SECRET_PASSAGES:
+            return (False, f"{player.current_room.value} has no secret passage")
+        
+        dest_room = SECRET_PASSAGES[player.current_room]
+        player.current_room = dest_room
+        player.in_hallway = False
+        player.position = None
+        player.moves_remaining = 0  # Using passage ends movement
+        player.has_moved_since_suggestion = True
+        player.was_moved_by_suggestion = False
+        
+        return (True, f"Used secret passage to {dest_room.value}!")
     
     def roll_dice(self) -> tuple[int, int, int]:
         """

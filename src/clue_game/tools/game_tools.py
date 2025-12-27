@@ -1,6 +1,12 @@
 """
 Custom CrewAI Tools for Clue Board Game
 Tools for agents to interact with the game following official Cluedo/Clue rules.
+
+Movement Rules:
+- Roll dice and move that many squares (horizontal/vertical only)
+- Cannot pass through or land on occupied hallway squares
+- Movement stops upon entering a room
+- Cannot visit same square twice in one turn
 """
 
 import sys
@@ -8,7 +14,8 @@ from crewai.tools import tool
 from clue_game.game_state import (
     get_game_state, Room, Suspect, Weapon,
     ROOM_CONNECTIONS, SECRET_PASSAGES, STARTING_POSITIONS, ROOM_DOORS,
-    STARTING_POSITION_NAMES, STARTING_POSITION_MOVES
+    STARTING_POSITION_NAMES, STARTING_POSITION_MOVES, STARTING_GRID_POSITIONS,
+    DOOR_POSITIONS, get_cell_type, CellType, BOARD_WIDTH, BOARD_HEIGHT
 )
 from clue_game.notebook import get_notebook
 
@@ -46,13 +53,13 @@ def get_my_cards(player_name: str) -> str:
 @tool("Get Current Location")
 def get_current_location(player_name: str) -> str:
     """
-    Get your current room location on the board.
+    Get your current location on the board.
     
     Args:
         player_name: Your player name
     
     Returns:
-        Your current room location or starting position
+        Your current room or grid position in the hallway
     """
     game_state = get_game_state()
     player = game_state.get_player_by_name(player_name)
@@ -61,19 +68,38 @@ def get_current_location(player_name: str) -> str:
         return f"Error: Player {player_name} not found"
     
     if player.current_room and not player.in_hallway:
-        result = f"You are currently in the {player.current_room.value}"
+        result = f"📍 You are currently in the {player.current_room.value}\n"
+        result += f"   Moves remaining: {player.moves_remaining}\n"
         if player.was_moved_by_suggestion:
             result += "\n(You were moved here by another player's suggestion - you may suggest immediately without moving)"
+        
+        # Show exits
+        doors = game_state.get_room_doors(player.current_room)
+        if doors:
+            result += f"\n🚪 Room exits: {len(doors)} door(s)"
+        if player.current_room in SECRET_PASSAGES:
+            dest = SECRET_PASSAGES[player.current_room]
+            result += f"\n🔑 Secret passage to: {dest.value}"
         return result
     else:
-        # Player is at starting position in hallway
-        start_name = STARTING_POSITION_NAMES.get(player.character, "hallway")
-        available_rooms = STARTING_POSITION_MOVES.get(player.character, [])
-        room_names = [r.value for r in available_rooms]
-        result = f"You are at your START position: {start_name}\n"
-        result += f"You are in the hallway (not in any room yet).\n"
-        result += f"You must roll dice and move into a room before making a suggestion.\n"
-        result += f"Rooms you can enter: {', '.join(room_names)}"
+        # Player is in hallway
+        if player.position:
+            result = f"📍 You are in the hallway at position ({player.position[0]}, {player.position[1]})\n"
+        else:
+            start_name = STARTING_POSITION_NAMES.get(player.character, "hallway")
+            result = f"📍 You are at your START position: {start_name}\n"
+        
+        result += f"   Moves remaining: {player.moves_remaining}\n"
+        result += f"\nYou must enter a room to make a suggestion."
+        
+        # Show nearby rooms if they have moves
+        if player.moves_remaining > 0:
+            reachable = game_state.get_reachable_rooms(player)
+            if reachable:
+                result += f"\n\n🚪 Rooms within reach:"
+                for room, distance, _ in reachable:
+                    result += f"\n   • {room.value} ({distance} steps)"
+        
         return result
 
 
@@ -81,8 +107,13 @@ def get_current_location(player_name: str) -> str:
 def roll_dice(player_name: str) -> str:
     """
     Roll two six-sided dice to determine movement.
-    Per official rules, you roll dice to move along corridor spaces.
-    In our simplified version, the dice result affects which rooms you can reach.
+    You MUST move the exact number of spaces rolled (horizontal/vertical only).
+    
+    MOVEMENT RULES:
+    - Move horizontally or vertically, never diagonally
+    - Cannot pass through or land on occupied hallway squares
+    - Movement STOPS when you enter a room (even if moves remain)
+    - Cannot visit the same square twice in one turn
     
     SPECIAL: One face on each die shows a MAGNIFYING GLASS (🔍) instead of 1.
     Rolling a magnifying glass gives you a free clue about what is NOT the solution!
@@ -91,7 +122,7 @@ def roll_dice(player_name: str) -> str:
         player_name: Your player name
     
     Returns:
-        The dice roll result, any clues from magnifying glass, and movement options
+        The dice roll result, movement allowance, and reachable rooms
     """
     game_state = get_game_state()
     player = game_state.get_player_by_name(player_name)
@@ -110,11 +141,14 @@ def roll_dice(player_name: str) -> str:
     move_die2 = 0 if die2 == 1 else die2
     total = move_die1 + move_die2
     
+    # Start the turn with the dice total
+    game_state.start_turn(player, total)
+    
     # Print dice roll to console for visibility
-    sys.stdout.write(f"\n    🎲 {player_name} rolled: {die1_display} + {die2_display} = {total} movement\n")
+    sys.stdout.write(f"\n    🎲 {player_name} rolled: {die1_display} + {die2_display} = {total} movement spaces\n")
     sys.stdout.flush()
     
-    result = f"🎲 DICE ROLL: {die1_display} + {die2_display} = {total} movement\n\n"
+    result = f"🎲 DICE ROLL: {die1_display} + {die2_display} = {total} movement spaces\n\n"
     
     # Handle magnifying glass clues
     if magnifying_count > 0:
@@ -132,28 +166,52 @@ def roll_dice(player_name: str) -> str:
         result += "\n  📝 TIP: Use your notebook to record this clue!\n\n"
         sys.stdout.flush()
     
-    available = game_state.get_available_moves(player)
-    room_names = [r.value for r in available]
-    
-    # Show current location - either room name or starting position name
+    # Show current position and reachable rooms
     if player.current_room and not player.in_hallway:
-        current = player.current_room.value
+        # Player is in a room - show room exits and secret passage
+        result += f"📍 You are in {player.current_room.value}\n"
+        result += f"   Moves available: {player.moves_remaining}\n\n"
+        
+        # Show door exits
+        doors = game_state.get_room_doors(player.current_room)
+        if doors:
+            result += f"🚪 Room exits (doors):\n"
+            for door_pos in doors:
+                result += f"   • Door at position ({door_pos[0]}, {door_pos[1]})\n"
+        
+        # Show secret passage if available
+        if player.current_room in SECRET_PASSAGES:
+            dest = SECRET_PASSAGES[player.current_room]
+            result += f"\n🔑 SECRET PASSAGE available to {dest.value}!\n"
+            result += "   (Using the secret passage ends your movement)\n"
+        
+        result += f"\n💡 Use 'Move To Room' to exit through a door and navigate to another room."
     else:
-        current = STARTING_POSITION_NAMES.get(player.character, "starting position")
-    
-    result += f"From {current}, you can move to:\n"
-    for room in room_names:
-        # Check if in a corner room with secret passage
-        if player.current_room and player.current_room in SECRET_PASSAGES:
-            secret = SECRET_PASSAGES.get(player.current_room)
-            if secret and secret.value == room:
-                result += f"  • {room} (via SECRET PASSAGE - instant!)\n"
-            else:
-                result += f"  • {room}\n"
+        # Player is in hallway - show reachable rooms
+        if player.position:
+            result += f"📍 You are at position ({player.position[0]}, {player.position[1]}) in the hallway\n"
         else:
-            result += f"  • {room}\n"
+            start_name = STARTING_POSITION_NAMES.get(player.character, "START")
+            result += f"📍 You are at {start_name}\n"
+        result += f"   Moves remaining: {player.moves_remaining}\n\n"
+        
+        # Find reachable rooms
+        reachable = game_state.get_reachable_rooms(player)
+        if reachable:
+            result += "🚪 ROOMS YOU CAN REACH:\n"
+            for room, distance, path in reachable:
+                result += f"   • {room.value} - {distance} steps away\n"
+        else:
+            result += "⚠️ No rooms reachable with current moves.\n"
+            result += "   You may need to move closer in the hallway.\n"
+        
+        result += f"\n💡 Use 'Move To Room' with a room name to navigate there."
     
-    result += f"\n(In this simplified version, any adjacent room can be reached regardless of roll)"
+    result += "\n\n⚠️ MOVEMENT RULES:\n"
+    result += "   • Move only horizontal/vertical (no diagonal)\n"
+    result += "   • Cannot pass through occupied squares\n"
+    result += "   • Movement STOPS when entering a room\n"
+    result += "   • Cannot cross same square twice in one turn"
     
     return result
 
@@ -161,21 +219,20 @@ def roll_dice(player_name: str) -> str:
 @tool("Get Available Moves")
 def get_available_moves(player_name: str) -> str:
     """
-    Get the rooms you can move to from your current location.
+    Get the rooms you can move to with your remaining movement.
     
     MOVEMENT RULES:
-    - You can ONLY move to adjacent rooms through DOORS
-    - Each room has specific doors that connect to hallways
-    - You CANNOT move diagonally across the board
-    - Secret passages exist between diagonal corner rooms:
-      * Kitchen ↔ Study
-      * Conservatory ↔ Lounge
+    - Move horizontally or vertically only (no diagonal)
+    - Cannot pass through or land on occupied squares
+    - Movement STOPS when you enter a room
+    - Cannot visit same square twice in one turn
+    - Secret passages can be used from corner rooms
     
     Args:
         player_name: Your player name
     
     Returns:
-        List of rooms you can legally move to with door information
+        List of rooms you can reach with current movement
     """
     game_state = get_game_state()
     player = game_state.get_player_by_name(player_name)
@@ -183,39 +240,72 @@ def get_available_moves(player_name: str) -> str:
     if not player:
         return f"Error: Player {player_name} not found"
     
-    available = game_state.get_available_moves(player)
+    result = "=== AVAILABLE MOVES ===\n\n"
     
     # Show current location
     if player.current_room and not player.in_hallway:
         current = player.current_room.value
-        current_room = player.current_room
+        result += f"📍 Current location: {current}\n"
+        
+        # Show doors to exit
+        doors = game_state.get_room_doors(player.current_room)
+        occupied = game_state.get_occupied_positions(exclude_player=player)
+        
+        if doors:
+            result += f"\n🚪 Exits from {current}:\n"
+            for door_pos in doors:
+                if door_pos in occupied:
+                    result += f"   • Door at ({door_pos[0]}, {door_pos[1]}) - BLOCKED\n"
+                else:
+                    result += f"   • Door at ({door_pos[0]}, {door_pos[1]}) - Available\n"
+        
+        # Show secret passage if available
+        if player.current_room in SECRET_PASSAGES:
+            dest = SECRET_PASSAGES[player.current_room]
+            result += f"\n🔑 SECRET PASSAGE to {dest.value}!\n"
+            result += "   (Using passage ends your turn immediately)\n"
+        
+        result += f"\n💡 Roll dice first to get movement points, then use 'Move To Room'."
+        
     else:
-        current = STARTING_POSITION_NAMES.get(player.character, "START position")
-        current_room = None
-    
-    result = f"=== AVAILABLE MOVES from {current} ===\n\n"
-    
-    # Show door info for current room (only if in a room)
-    if current_room and current_room in ROOM_DOORS:
-        doors = ROOM_DOORS[current_room]
-        result += f"📍 {current} has {len(doors)} door(s):\n"
-        for door_side, connects_to in doors:
-            result += f"   • {door_side.upper()} door → hallway\n"
-        result += "\n"
-    elif not current_room:
-        result += "📍 You are at your START position in the hallway.\n"
-        result += "   You must enter a room to make a suggestion.\n\n"
-    
-    result += "🚪 You can move to:\n"
-    for room in available:
-        room_name = room.value
-        # Check if it's a secret passage (only available from corner rooms)
-        if current_room and current_room in SECRET_PASSAGES and SECRET_PASSAGES[current_room] == room:
-            result += f"  • {room_name} (via 🔑 SECRET PASSAGE - no dice needed!)\n"
+        # In hallway
+        if player.position:
+            result += f"📍 Current position: ({player.position[0]}, {player.position[1]}) in hallway\n"
         else:
-            result += f"  • {room_name} (through hallway)\n"
+            start_name = STARTING_POSITION_NAMES.get(player.character, "START")
+            result += f"📍 Current position: {start_name}\n"
+        
+        result += f"   Moves remaining: {player.moves_remaining}\n\n"
+        
+        if player.moves_remaining <= 0:
+            result += "⚠️ No moves remaining. Roll dice to get movement points.\n"
+        else:
+            # Find reachable rooms
+            reachable = game_state.get_reachable_rooms(player)
+            
+            if reachable:
+                result += "🚪 ROOMS YOU CAN REACH:\n"
+                for room, distance, path in reachable:
+                    result += f"   • {room.value} - {distance} steps\n"
+            else:
+                result += "⚠️ No rooms reachable with current moves.\n"
+                result += "   You need to roll more moves or position closer.\n"
+            
+            # Show immediate adjacent moves
+            valid_moves = game_state.get_valid_moves_from_position(player)
+            if valid_moves:
+                result += f"\n🚶 Adjacent squares you can step to:\n"
+                for row, col, room in valid_moves[:5]:  # Limit display
+                    if room:
+                        result += f"   • ({row}, {col}) → Enter {room.value}\n"
+                    else:
+                        result += f"   • ({row}, {col}) - hallway\n"
     
-    result += "\n⚠️ Remember: You can only move through doors! No diagonal shortcuts."
+    result += "\n⚠️ MOVEMENT RULES:\n"
+    result += "   • No diagonal movement\n"
+    result += "   • Cannot pass through other players\n"
+    result += "   • Entering a room ends movement\n"
+    result += "   • Cannot cross same square twice per turn"
     
     return result
 
@@ -223,12 +313,16 @@ def get_available_moves(player_name: str) -> str:
 @tool("Move To Room")
 def move_to_room(player_name: str, room_name: str) -> str:
     """
-    Move to an adjacent room. You must move before making a suggestion.
+    Move to a room using your dice roll movement.
     
     MOVEMENT RULES:
-    - You can ONLY move to rooms connected by doorways
-    - You CANNOT move diagonally across the board
-    - Use "Get Available Moves" first to see valid options
+    - You can only move the number of spaces you rolled
+    - Move horizontally or vertically only (no diagonal)
+    - Cannot pass through or land on occupied hallway squares
+    - Movement STOPS immediately when you enter a room
+    - Cannot visit the same square twice in one turn
+    
+    If in a room with a SECRET PASSAGE, you can use it instead (ends movement).
     
     Args:
         player_name: Your player name
@@ -256,19 +350,91 @@ def move_to_room(player_name: str, room_name: str) -> str:
     
     # Get current location description
     if player.current_room and not player.in_hallway:
-        current_room = player.current_room.value
-    else:
-        current_room = STARTING_POSITION_NAMES.get(player.character, "START")
+        current_location = player.current_room.value
+        
+        # Check if using secret passage
+        if player.current_room in SECRET_PASSAGES and SECRET_PASSAGES[player.current_room] == target_room:
+            success, msg = game_state.use_secret_passage(player)
+            if success:
+                sys.stdout.write(f"    🔑 {player_name} used SECRET PASSAGE: {current_location} → {target_room.value}\n")
+                sys.stdout.flush()
+                return f"🔑 {msg}\n\nYou can now make a suggestion about {target_room.value}."
+            else:
+                return f"❌ {msg}"
+        
+        # Need to exit room first - find available doors
+        doors = game_state.get_room_doors(player.current_room)
+        
+        if not doors:
+            return f"❌ Cannot find exit from {current_location}"
+        
+        # Try each door to find path to target room
+        best_door = None
+        min_distance = float('inf')
+        
+        occupied = game_state.get_occupied_positions(exclude_player=player)
+        
+        for door_pos in doors:
+            if door_pos in occupied:
+                continue  # Door blocked
+            
+            # Temporarily exit through this door and check if target is reachable
+            # We'll pick the door that gives shortest path
+            # For now, just use the first unblocked door
+            best_door = door_pos
+            break
+        
+        if not best_door:
+            return f"❌ All exits from {current_location} are blocked by other players"
+        
+        # Exit through the door
+        if not game_state.exit_room_to_hallway(player, best_door):
+            return f"❌ Could not exit {current_location}"
+        
+        sys.stdout.write(f"    🚶 {player_name} exited {current_location} to hallway\n")
     
-    if game_state.move_player(player, target_room):
-        sys.stdout.write(f"    🚶 {player_name} moved: {current_room} → {target_room.value}\n")
-        sys.stdout.flush()
-        return f"✓ You moved from {current_room} to the {target_room.value}. You can now make a suggestion about this room."
-    else:
-        available = [r.value for r in game_state.get_available_moves(player)]
-        return (f"❌ Cannot move to {target_room.value} from {current_room}.\n"
-                f"Remember: You cannot move diagonally! Only through doorways or secret passages.\n"
-                f"Available moves: {', '.join(available)}")
+    # Now player is in hallway - check if they have moves remaining
+    if player.moves_remaining <= 0:
+        return f"❌ No moves remaining. You need to roll dice first or you've used all your moves."
+    
+    # Check if target room is reachable
+    reachable = game_state.get_reachable_rooms(player)
+    target_reachable = None
+    
+    for room, distance, path in reachable:
+        if room == target_room:
+            target_reachable = (room, distance, path)
+            break
+    
+    if not target_reachable:
+        # List what IS reachable
+        if reachable:
+            reachable_names = [f"{r.value} ({d} steps)" for r, d, p in reachable]
+            return (f"❌ Cannot reach {target_room.value} with {player.moves_remaining} moves remaining.\n\n"
+                    f"Rooms you CAN reach:\n" + "\n".join(f"  • {n}" for n in reachable_names))
+        else:
+            return (f"❌ Cannot reach any room with {player.moves_remaining} moves remaining.\n"
+                    f"You may need to move closer in the hallway first.")
+    
+    room, distance, path = target_reachable
+    
+    # Execute the movement along the path
+    start_pos = player.position
+    for i, (row, col) in enumerate(path[1:], 1):  # Skip first position (current)
+        success, entered_room, msg = game_state.move_player_one_step(player, row, col)
+        if not success:
+            return f"❌ Movement blocked at step {i}: {msg}"
+        
+        if entered_room:
+            # Entered the room!
+            sys.stdout.write(f"    🚶 {player_name} moved: ({start_pos[0]},{start_pos[1]}) → {entered_room.value} ({distance} steps)\n")
+            sys.stdout.flush()
+            return f"✓ Moved to {entered_room.value} in {distance} steps.\n\nYou can now make a suggestion about this room."
+    
+    # Should have entered room by end of path
+    sys.stdout.write(f"    🚶 {player_name} moved {distance} steps toward {target_room.value}\n")
+    sys.stdout.flush()
+    return f"✓ Moved toward {target_room.value}. Moves remaining: {player.moves_remaining}"
 
 
 @tool("Make Suggestion")
