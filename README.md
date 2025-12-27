@@ -133,6 +133,7 @@ The mansion layout with 9 rooms and their door positions:
 - **Cannot suggest if staying** - If you were already in a room and didn't leave, you cannot suggest
 - **Suspect movement** - Suggested suspect token is moved to your room
 - **Clockwise disproving** - Players go clockwise; first one with a matching card shows ONE card
+- **Auto-notebook update** - When a card is shown (via suggestion disproval or magnifying glass clue), ALL players' notebooks are automatically updated to mark who holds that card
 - **No repeated suggestions** - Cannot suggest again in same room without leaving first (American rules)
 - **Exception** - If moved to a room by another's suggestion, you can suggest immediately
 - **Notebook validation** - Warns if suggesting cards already known (crossed out in notebook)

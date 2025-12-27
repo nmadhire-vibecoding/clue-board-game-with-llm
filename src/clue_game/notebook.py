@@ -668,3 +668,27 @@ def reset_all_notebooks():
     """Reset all notebooks for a new game."""
     global _player_notebooks
     _player_notebooks = {}
+
+
+def update_all_notebooks_card_shown(card_name: str, card_holder: str) -> None:
+    """
+    Update all player notebooks when a card is revealed.
+    
+    This is called when:
+    - A suggestion is disproved and a card is shown
+    - A magnifying glass clue reveals who holds a card
+    
+    All players will mark that the card holder has this card,
+    which means it's not in the solution envelope.
+    
+    Args:
+        card_name: The name of the card that was shown
+        card_holder: The name of the player who holds this card
+    """
+    global _player_notebooks
+    for player_name, notebook in _player_notebooks.items():
+        try:
+            notebook.mark_card(card_name, card_holder)
+        except Exception:
+            # If notebook doesn't have this card tracked yet, skip
+            pass

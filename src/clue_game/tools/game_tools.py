@@ -17,7 +17,7 @@ from clue_game.game_state import (
     STARTING_POSITION_NAMES, STARTING_POSITION_MOVES, STARTING_GRID_POSITIONS,
     DOOR_POSITIONS, get_cell_type, CellType, BOARD_WIDTH, BOARD_HEIGHT
 )
-from clue_game.notebook import get_notebook
+from clue_game.notebook import get_notebook, update_all_notebooks_card_shown
 
 
 @tool("Get My Cards")
@@ -161,12 +161,16 @@ def roll_dice(player_name: str) -> str:
                 if holder_name:
                     result += f"  💡 CLUE: {clue_text} (shown by {holder_name})\n"
                     sys.stdout.write(f"    💡 CLUE: {clue_text} (shown by {holder_name})\n")
+                    # Extract card name from clue text (format: "CardName is NOT the murder type")
+                    card_name = clue_text.split(" is NOT")[0]
+                    # Update all players' notebooks with this information
+                    update_all_notebooks_card_shown(card_name, holder_name)
                 else:
                     result += f"  💡 CLUE: {clue_text}\n"
                     sys.stdout.write(f"    💡 CLUE: {clue_text}\n")
             else:
                 result += f"  💡 CLUE: No additional clues available.\n"
-        result += "\n  📝 TIP: Use your notebook to record this clue!\n\n"
+        result += "\n  📝 All players' notebooks have been updated with this clue.\n\n"
         sys.stdout.flush()
     
     # Show current position and reachable rooms
@@ -544,12 +548,14 @@ def make_suggestion(player_name: str, suspect: str, weapon: str) -> str:
     if suggestion.disproven_by:
         result += f"❌ DISPROVEN by {suggestion.disproven_by} who showed you: {suggestion.card_shown}\n"
         result += f"   This means {suggestion.card_shown} is NOT part of the solution.\n"
-        result += f"   📝 TIP: Record this in your notebook with 'Mark Player Has Card'!"
+        result += f"   📝 All players' notebooks have been auto-updated!"
         sys.stdout.write(f"    ❌ Disproven by {suggestion.disproven_by} (showed: {suggestion.card_shown})\n")
         sys.stdout.flush()
         # Update player knowledge
         if suggestion.card_shown not in player.knowledge["seen_cards"]:
             player.knowledge["seen_cards"].append(suggestion.card_shown)
+        # Update ALL players' notebooks with this information
+        update_all_notebooks_card_shown(suggestion.card_shown, suggestion.disproven_by)
     else:
         result += "✓ NO ONE could disprove this suggestion!\n"
         result += "  This is a VERY strong lead - consider making an accusation!"
