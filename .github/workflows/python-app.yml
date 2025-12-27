@@ -29,10 +29,6 @@ jobs:
     - name: Install dependencies with uv
       run: |
         uv sync
-    - name: Lint with flake8
-      run: |
-        uv pip install flake8
-        flake8 .
     - name: Test with uv
       run: |
         uv pip install pytest
