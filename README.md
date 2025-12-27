@@ -3,7 +3,20 @@
 
 [![Build Status](https://github.com/nmadhire-vibecoding/clue-board-game-with-llm/actions/workflows/python-app.yml/badge.svg)](https://github.com/nmadhire-vibecoding/clue-board-game-with-llm/actions/workflows/python-app.yml)
 
+
 A multi-agent implementation of the classic Clue (Cluedo) board game using CrewAI and Google Gemini 2.5 Flash LLM. Six AI agents compete to solve the murder mystery following the **official game rules** from [Wikipedia](https://en.wikipedia.org/wiki/Cluedo#Rules).
+
+## Agent Autonomy: Perceive, Reason, Plan, Act
+
+Each agent in this game is fully autonomous and follows a structured decision-making loop on every turn:
+
+1. **Perceive**: The agent observes its environment and gathers all available information (cards, location, notebook, event log, etc.).
+2. **Reason**: The agent analyzes its observations, updates its detective notebook, and deduces what is known or unknown.
+3. **Plan**: The agent formulates a plan to achieve its goal (solving the mystery), deciding whether to move, suggest, or accuse.
+4. **Act**: The agent executes its plan by using the appropriate tools (move, make a suggestion, record results, or make an accusation).
+
+This loop ensures that each agent acts independently, adapts to new information, and makes strategic decisions throughout the game. The autonomy structure is enforced in the code and validated by tests.
+
 
 ## Game Overview
 
@@ -13,7 +26,8 @@ In this game, 6 AI players investigate a murder at Tudor Mansion:
 - **Where** the crime took place (9 rooms)
 
 
-Each player uses deduction and strategy to be the first to solve the mystery!
+
+Each player uses deduction and strategy to be the first to solve the mystery, autonomously following the perceive → reason → plan → act loop!
 
 ## Official Rules Implemented
 
