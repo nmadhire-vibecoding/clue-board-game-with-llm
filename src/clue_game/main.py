@@ -8,6 +8,8 @@ import os
 import sys
 import time
 import random
+import logging
+import traceback
 
 # Disable CrewAI tracing before importing crewai
 os.environ["CREWAI_TRACING_ENABLED"] = "false"
@@ -25,6 +27,158 @@ from clue_game.crew import (
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging for debugging LLM issues
+logging.basicConfig(
+    level=logging.DEBUG if os.environ.get("CLUE_DEBUG") else logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+def _patch_crewai_printer():
+    """
+    Monkey-patch CrewAI's Printer class to provide more detailed error messages.
+    This intercepts the "Received None or empty response" messages and adds context.
+    """
+    try:
+        from crewai.utilities.printer import Printer
+        
+        original_print = Printer.print
+        
+        def enhanced_print(self, content="", color=None, **kwargs):
+            # Intercept the empty response error and enhance it
+            if "None or empty response" in str(content):
+                enhanced_content = (
+                    f"{content}\n"
+                    f"   💡 This typically indicates:\n"
+                    f"      - Gemini safety filters blocked the response\n"
+                    f"      - The model returned only function calls (no text)\n"
+                    f"      - API quota/rate limit issues\n"
+                    f"      - Model overloaded or temporary outage\n"
+                    f"   🔧 Set CLUE_DEBUG=1 for more details"
+                )
+                return original_print(self, content=enhanced_content, color=color, **kwargs)
+            return original_print(self, content=content, color=color, **kwargs)
+        
+        Printer.print = enhanced_print
+        logger.debug("Successfully patched CrewAI Printer for enhanced error messages")
+    except Exception as e:
+        logger.warning(f"Could not patch CrewAI Printer: {e}")
+
+
+def _patch_gemini_completion():
+    """
+    Monkey-patch Gemini completion handler to capture and log response details
+    when the response is empty, helping diagnose why the LLM returned no content.
+    """
+    try:
+        from crewai.llms.providers.gemini import completion as gemini_module
+        
+        original_handle_completion = gemini_module.GeminiCompletion._handle_completion
+        
+        def enhanced_handle_completion(self, contents, system_instruction, config,
+                                       available_functions=None, from_task=None,
+                                       from_agent=None, response_model=None):
+            try:
+                # Call the original method
+                result = original_handle_completion(
+                    self, contents, system_instruction, config,
+                    available_functions, from_task, from_agent, response_model
+                )
+                return result
+            except Exception as e:
+                # Try to get more details about the response
+                try:
+                    from google.genai import types
+                    # The response is captured in the original method, we can't access it
+                    # But we can log the exception context
+                    logger.error(f"Gemini completion failed: {e}")
+                    logger.error(f"Model: {self.model}")
+                    logger.error(f"Config: {config}")
+                    if contents:
+                        logger.error(f"Number of content items: {len(contents)}")
+                        # Log the last content item (usually the latest message)
+                        if contents:
+                            last_content = contents[-1]
+                            if hasattr(last_content, 'parts') and last_content.parts:
+                                for i, part in enumerate(last_content.parts):
+                                    if hasattr(part, 'text') and part.text:
+                                        text = part.text[:200] + "..." if len(part.text) > 200 else part.text
+                                        logger.error(f"Last message part {i} (truncated): {text}")
+                except Exception as inner_e:
+                    logger.warning(f"Could not extract additional details: {inner_e}")
+                raise
+        
+        gemini_module.GeminiCompletion._handle_completion = enhanced_handle_completion
+        logger.debug("Successfully patched Gemini completion for detailed logging")
+    except ImportError:
+        logger.debug("Gemini module not available, skipping patch")
+    except Exception as e:
+        logger.warning(f"Could not patch Gemini completion: {e}")
+
+
+# Apply patches when module loads
+_patch_crewai_printer()
+_patch_gemini_completion()
+
+
+def get_gemini_response_details(exception):
+    """
+    Extract Gemini-specific response details from an exception or its context.
+    
+    This attempts to find and extract safety ratings, block reasons, and
+    finish reasons from Gemini API responses.
+    
+    Args:
+        exception: The exception to analyze
+        
+    Returns:
+        A list of detail strings about the Gemini response
+    """
+    details = []
+    
+    # Walk up the exception chain to find Gemini-related info
+    current = exception
+    while current is not None:
+        # Check for Gemini response attributes
+        if hasattr(current, 'response'):
+            resp = current.response
+            
+            try:
+                # Check for candidates with finish reasons
+                if hasattr(resp, 'candidates') and resp.candidates and hasattr(resp.candidates, '__iter__'):
+                    for i, candidate in enumerate(resp.candidates):
+                        if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                            details.append(f"Candidate {i} finish_reason: {candidate.finish_reason}")
+                        if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings and hasattr(candidate.safety_ratings, '__iter__'):
+                            ratings = ", ".join([
+                                f"{r.category}: {r.probability}" 
+                                for r in candidate.safety_ratings if hasattr(r, 'category')
+                            ])
+                            if ratings:
+                                details.append(f"Safety ratings: {ratings}")
+                
+                # Check for prompt feedback
+                if hasattr(resp, 'prompt_feedback') and resp.prompt_feedback:
+                    pf = resp.prompt_feedback
+                    if hasattr(pf, 'block_reason') and pf.block_reason:
+                        details.append(f"Prompt blocked: {pf.block_reason}")
+                    if hasattr(pf, 'safety_ratings') and pf.safety_ratings and hasattr(pf.safety_ratings, '__iter__'):
+                        ratings = ", ".join([
+                            f"{r.category}: {r.probability}" 
+                            for r in pf.safety_ratings if hasattr(r, 'category')
+                        ])
+                        if ratings:
+                            details.append(f"Prompt safety ratings: {ratings}")
+            except (TypeError, AttributeError):
+                # Skip if response object doesn't have expected structure (e.g., Mock objects)
+                pass
+        
+        # Move to the cause
+        current = getattr(current, '__cause__', None)
+    
+    return details
 
 
 def get_error_details(exception):
@@ -67,6 +221,16 @@ def get_error_details(exception):
     if hasattr(exception, 'args') and len(exception.args) > 1:
         error_info.append(f"Additional Args: {exception.args[1:]}")
     
+    # Add Gemini-specific details
+    gemini_details = get_gemini_response_details(exception)
+    if gemini_details:
+        error_info.extend(gemini_details)
+    
+    # For "None or empty response" errors, provide additional context
+    if "None or empty" in str(exception) or "empty response" in str(exception).lower():
+        error_info.append("Possible causes: Safety filter blocked response, quota exceeded, model overloaded, or malformed prompt")
+        error_info.append("Suggestions: Check GOOGLE_API_KEY is valid, try reducing prompt complexity, or wait and retry")
+    
     return " | ".join(error_info)
 
 
@@ -86,26 +250,48 @@ def retry_with_backoff(func, max_retries=3, base_delay=5):
         The last exception if all retries fail
     """
     last_exception = None
+    debug_mode = os.environ.get("CLUE_DEBUG", "").lower() in ("1", "true", "yes")
+    
     for attempt in range(max_retries + 1):
         try:
             result = func()
             # Check for empty/None response
             if result is None or (hasattr(result, 'raw') and not result.raw):
-                raise ValueError("Empty or None response from LLM")
+                # Try to get more info about the empty response
+                raw_info = ""
+                if result is not None:
+                    raw_info = f" (result type: {type(result).__name__}"
+                    if hasattr(result, '__dict__'):
+                        raw_info += f", attributes: {list(result.__dict__.keys())}"
+                    raw_info += ")"
+                raise ValueError(f"Empty or None response from LLM{raw_info}")
             return result
         except Exception as e:
             last_exception = e
             error_details = get_error_details(e)
+            
+            # Log full stack trace in debug mode
+            if debug_mode:
+                logger.error(f"Attempt {attempt + 1} failed with exception:", exc_info=True)
+            
             if attempt < max_retries:
                 delay = base_delay * (2 ** attempt)  # Exponential backoff: 5, 10, 20 seconds
-                sys.stdout.write(f"\n⚠️ Attempt {attempt + 1} failed\n")
+                sys.stdout.write(f"\n⚠️ Attempt {attempt + 1}/{max_retries + 1} failed\n")
                 sys.stdout.write(f"   📋 Error: {error_details}\n")
+                if debug_mode:
+                    sys.stdout.write(f"   🔍 Stack trace:\n")
+                    for line in traceback.format_exception(type(e), e, e.__traceback__):
+                        sys.stdout.write(f"      {line}")
                 sys.stdout.write(f"🔄 Retrying in {delay} seconds...\n")
                 sys.stdout.flush()
                 time.sleep(delay)
             else:
                 sys.stdout.write(f"\n❌ All {max_retries + 1} attempts failed\n")
                 sys.stdout.write(f"   📋 Final Error: {error_details}\n")
+                if debug_mode:
+                    sys.stdout.write(f"   🔍 Full stack trace:\n")
+                    for line in traceback.format_exception(type(e), e, e.__traceback__):
+                        sys.stdout.write(f"      {line}")
                 sys.stdout.flush()
     raise last_exception
 

@@ -55,6 +55,8 @@ class TestGetErrorDetails:
         mock_response = Mock()
         mock_response.status_code = 503
         mock_response.text = "Service Unavailable"
+        # Ensure candidates is not iterable to avoid Gemini-specific handling
+        mock_response.candidates = None
         
         exc = Exception("API error")
         exc.response = mock_response
@@ -85,6 +87,8 @@ class TestGetErrorDetails:
         mock_response = Mock()
         mock_response.status_code = 500
         mock_response.text = "A" * 1000  # Very long text
+        # Ensure candidates is not iterable to avoid Gemini-specific handling
+        mock_response.candidates = None
         
         exc = Exception("API error")
         exc.response = mock_response

@@ -375,6 +375,7 @@ class Player:
     was_moved_by_suggestion: bool = False  # If pulled into room by another's suggestion
     has_accused_this_turn: bool = False  # Can only accuse once per turn
     in_hallway: bool = True  # True when player is in hallway (starting position or between rooms)
+    entered_room_this_turn: bool = False  # True when player enters a room during their turn
     
     # Grid-based position tracking
     position: Optional[Tuple[int, int]] = None  # (row, col) on the board grid
@@ -556,6 +557,7 @@ class GameState:
         """
         player.moves_remaining = dice_total
         player.visited_this_turn = set()
+        player.entered_room_this_turn = False  # Reset room entry flag for new turn
         # Mark current position as visited
         if player.position:
             player.visited_this_turn.add(player.position)
@@ -668,6 +670,7 @@ class GameState:
             player.moves_remaining = 0  # Movement ends
             player.has_moved_since_suggestion = True
             player.was_moved_by_suggestion = False
+            player.entered_room_this_turn = True  # Mark that player entered a room this turn
             return (True, room, f"Entered {room.value}! Movement ends.")
         
         return (True, None, f"Moved to ({row}, {col}). {player.moves_remaining} moves remaining.")
@@ -778,6 +781,7 @@ class GameState:
         player.moves_remaining = 0  # Using passage ends movement
         player.has_moved_since_suggestion = True
         player.was_moved_by_suggestion = False
+        player.entered_room_this_turn = True  # Mark that player entered a room this turn
         
         return (True, f"Used secret passage to {dest_room.value}!")
     
@@ -842,6 +846,8 @@ class GameState:
                 player.current_room = room
                 player.was_moved_by_suggestion = True
                 player.has_moved_since_suggestion = True  # Can suggest immediately if moved by others
+                player.entered_room_this_turn = True  # Treat as entering the room for suggestion eligibility
+                player.in_hallway = False
                 return player
         return None
     
@@ -850,6 +856,7 @@ class GameState:
         Make a suggestion. The room is always the player's current room.
         Per official rules:
         - Player must be in a room to make a suggestion
+        - Player must have ENTERED the room this turn (not just stayed in it)
         - Suggestion must include the current room
         - Suggested suspect token is moved to the room
         - Players go clockwise to disprove, showing only ONE card
@@ -859,6 +866,11 @@ class GameState:
         """
         if player.current_room is None:
             raise ValueError("Player must be in a room to make a suggestion")
+        
+        # Player must have entered the room this turn to make a suggestion
+        # Exception: If player was moved to room by another player's suggestion
+        if not player.entered_room_this_turn and not player.was_moved_by_suggestion:
+            raise ValueError("You must enter a room during your turn to make a suggestion. Roll the dice and move into a room first.")
         
         # American rules: Can't make repeated suggestions in same room without leaving
         # Exception: If player was moved to room by another player's suggestion

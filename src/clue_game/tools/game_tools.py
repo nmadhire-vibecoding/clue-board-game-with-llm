@@ -116,7 +116,7 @@ def roll_dice(player_name: str) -> str:
     - Cannot visit the same square twice in one turn
     
     SPECIAL: One face on each die shows a MAGNIFYING GLASS (🔍) instead of 1.
-    Rolling a magnifying glass gives you a free clue about what is NOT the solution!
+    Rolling a magnifying glass counts as 1 for movement AND gives you a free clue!
     
     Args:
         player_name: Your player name
@@ -136,10 +136,8 @@ def roll_dice(player_name: str) -> str:
     die1_display = "🔍" if die1 == 1 else str(die1)
     die2_display = "🔍" if die2 == 1 else str(die2)
     
-    # Calculate movement total (magnifying glass = 0 for movement)
-    move_die1 = 0 if die1 == 1 else die1
-    move_die2 = 0 if die2 == 1 else die2
-    total = move_die1 + move_die2
+    # Calculate movement total (magnifying glass = 1 for movement)
+    total = die1 + die2
     
     # Start the turn with the dice total
     game_state.start_turn(player, total)
@@ -442,11 +440,15 @@ def make_suggestion(player_name: str, suspect: str, weapon: str) -> str:
     """
     Make a suggestion about the murder. Per official Clue rules:
     - You can only suggest while in a room
+    - You must ENTER the room during your turn (roll dice and move into it)
     - The suggestion MUST include the room you're currently in
     - The suggested suspect token is moved to your room
     - Players clockwise from you try to disprove by showing ONE card
     - You cannot make repeated suggestions in the same room without leaving first
       (Exception: if you were moved to the room by another player's suggestion)
+    
+    IMPORTANT: You cannot suggest if you just stayed in the same room without moving!
+    You must roll the dice and enter a room to make a suggestion.
     
     IMPORTANT: Don't suggest cards that are already crossed out in your notebook!
     Suggesting known cards wastes your turn.
@@ -466,7 +468,11 @@ def make_suggestion(player_name: str, suspect: str, weapon: str) -> str:
         return f"Error: Player {player_name} not found"
     
     if not player.current_room:
-        return "Error: You must be in a room to make a suggestion"
+        return "Error: You must be in a room to make a suggestion. Roll the dice and move to a room first."
+    
+    # Check if player entered a room this turn
+    if not player.entered_room_this_turn and not player.was_moved_by_suggestion:
+        return "Error: You must ENTER a room during your turn to make a suggestion. You are currently in a room but did not enter it this turn. You need to leave and re-enter a room, or use your dice roll to move to a different room."
     
     # Validate suspect
     valid_suspect = None

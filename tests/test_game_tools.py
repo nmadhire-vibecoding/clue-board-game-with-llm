@@ -90,6 +90,38 @@ class TestRollDice:
         assert "DICE ROLL" in result
         assert "+" in result  # Shows die1 + die2
     
+    def test_magnifying_glass_counts_as_one(self):
+        """Magnifying glass (1 on die) should count as 1 for movement total."""
+        import unittest.mock as mock
+        
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        
+        # Mock roll_dice to return a magnifying glass (1) on first die
+        with mock.patch.object(game, 'roll_dice', return_value=(1, 4, 1)):
+            result = roll_dice.func(player_name="TestPlayer")
+        
+        # Should show magnifying glass emoji for die showing 1
+        assert "🔍" in result
+        # Total movement should be 1 + 4 = 5
+        assert "5 movement spaces" in result
+    
+    def test_double_magnifying_glass(self):
+        """Both dice showing magnifying glass should give 2 movement spaces."""
+        import unittest.mock as mock
+        
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        
+        # Mock roll_dice to return magnifying glass on both dice
+        with mock.patch.object(game, 'roll_dice', return_value=(1, 1, 2)):
+            result = roll_dice.func(player_name="TestPlayer")
+        
+        # Total movement should be 1 + 1 = 2
+        assert "2 movement spaces" in result
+        # Should mention magnifying glass bonus
+        assert "MAGNIFYING GLASS" in result
+    
     def test_shows_available_moves(self):
         """Should show rooms player can move to after rolling dice."""
         game = reset_game_state()
@@ -205,6 +237,7 @@ class TestMakeSuggestion:
         player = game.get_player_by_name("TestPlayer")
         player.current_room = Room.LIBRARY
         player.in_hallway = False
+        player.entered_room_this_turn = True
         
         result = make_suggestion.func(player_name="TestPlayer", suspect="Miss Scarlet", weapon="Knife")
         
@@ -224,6 +257,20 @@ class TestMakeSuggestion:
         
         assert "Error" in result
     
+    def test_suggestion_not_entered_room_this_turn(self):
+        """Should fail if player didn't enter room this turn."""
+        game = reset_game_state()
+        game.setup_game(["TestPlayer", "Other"])
+        player = game.get_player_by_name("TestPlayer")
+        player.current_room = Room.LIBRARY
+        player.in_hallway = False
+        player.entered_room_this_turn = False  # Player was already in room
+        
+        result = make_suggestion.func(player_name="TestPlayer", suspect="Miss Scarlet", weapon="Knife")
+        
+        assert "Error" in result
+        assert "enter" in result.lower() or "move" in result.lower()
+    
     def test_invalid_suspect(self):
         """Should error for invalid suspect name."""
         game = reset_game_state()
@@ -231,6 +278,7 @@ class TestMakeSuggestion:
         player = game.get_player_by_name("TestPlayer")
         player.current_room = Room.LIBRARY
         player.in_hallway = False
+        player.entered_room_this_turn = True
         
         result = make_suggestion.func(player_name="TestPlayer", suspect="Invalid Person", weapon="Knife")
         
@@ -243,6 +291,7 @@ class TestMakeSuggestion:
         player = game.get_player_by_name("TestPlayer")
         player.current_room = Room.LIBRARY
         player.in_hallway = False
+        player.entered_room_this_turn = True
         
         result = make_suggestion.func(player_name="TestPlayer", suspect="Miss Scarlet", weapon="Invalid Weapon")
         
@@ -255,6 +304,7 @@ class TestMakeSuggestion:
         player = game.get_player_by_name("TestPlayer")
         player.current_room = Room.LIBRARY
         player.in_hallway = False
+        player.entered_room_this_turn = True
         
         result = make_suggestion.func(player_name="TestPlayer", suspect="Miss Scarlet", weapon="Knife")
         
@@ -333,6 +383,7 @@ class TestGetSuggestionHistory:
         player = game.get_player_by_name("P1")
         player.current_room = Room.LIBRARY
         player.in_hallway = False
+        player.entered_room_this_turn = True
         
         # Make a suggestion
         make_suggestion.func(player_name="P1", suspect="Miss Scarlet", weapon="Knife")
